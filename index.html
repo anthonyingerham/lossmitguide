@@ -189,6 +189,11 @@
   .wizslot .inline input{flex:1 1 100%}
   /* Auto-scroll at finish must clear the sticky header */
   #resultsCard,#fhaModule,#vaModule,#wizCard{scroll-margin-top:64px}
+  /* Guided-lookup buttons in the "Not sure" flow */
+  .callout .lookbtn{display:inline-block;background:var(--accent);color:#fff;font-weight:600;font-size:15px;
+    padding:11px 16px;border-radius:var(--radius);text-decoration:none;margin:4px 8px 4px 0;min-height:44px;box-sizing:border-box}
+  .callout .lookbtn:hover{background:var(--accent-press)}
+  .callout .lookbtn:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
   /* snappy slide: outgoing left, incoming from right — transform/opacity only */
   @media (prefers-reduced-motion: no-preference){
     .wiz-in{animation:wizin .22s cubic-bezier(.25,.9,.35,1) both}
@@ -1580,9 +1585,21 @@ function onInvestor(v){
   if (v==="gse"){
     startWizard("gse");
   } else if (v==="notsure"){
-    note.innerHTML = `<div class="callout"><strong>Two ways to go:</strong>
-      <p class="small" style="margin:8px 0 0"><strong>Fastest:</strong> <button class="ghost" type="button" style="margin:4px 0" onclick="checkAllPrograms()">Check all three programs at once</button></p>
-      <p class="small" style="margin:8px 0 0"><strong>Most precise:</strong> look up who owns your loan (~2 minutes) — <a href="https://yourhome.fanniemae.com/calculators-tools/loan-lookup" target="_blank" rel="noopener">Fannie Mae lookup ↗</a> · <a href="https://myhome.freddiemac.com/resources/loanlookup" target="_blank" rel="noopener">Freddie Mac lookup ↗</a>. If neither owns it, check your statement for FHA or VA.</p></div>`;
+    note.innerHTML = `<div class="callout">
+      <strong>Let's find out who owns your loan — about a minute, and it makes your answer exact.</strong>
+      <p class="small" style="margin:8px 0 0">Tap each lookup below — it opens the <em>official</em> site in a new tab. You'll enter your address and the last 4 digits of your SSN directly with them; nothing you type there is entered on, seen by, or sent to this site.</p>
+      <p style="margin:10px 0 0">
+        <a class="lookbtn" href="https://yourhome.fanniemae.com/calculators-tools/loan-lookup" target="_blank" rel="noopener">1 · Check Fannie Mae ↗</a>
+        <a class="lookbtn" href="https://myhome.freddiemac.com/resources/loanlookup" target="_blank" rel="noopener">2 · Check Freddie Mac ↗</a>
+      </p>
+      <p class="small" style="margin:14px 0 6px"><strong>Then tap what they said:</strong></p>
+      <div class="seg small" role="group" aria-label="Lookup result">
+        <button type="button" onclick="lookupSays('gse')">Fannie Mae owns it</button>
+        <button type="button" onclick="lookupSays('gse')">Freddie Mac owns it</button>
+        <button type="button" onclick="lookupSays('neither')">Neither one</button>
+        <button type="button" onclick="checkAllPrograms()">I can't check right now</button>
+      </div>
+    </div>`;
   } else if (v==="fha"){
     startWizard("fha");
   } else if (v==="va"){
@@ -2542,6 +2559,25 @@ function mirrorShared(){
   if (h){ const fh=$("fhaHardship"), vh=$("vaHardship");
     if (fh && map[h]) fh.value=map[h];
     if (vh && map[h]) vh.value=map[h]; }
+}
+/* "Not sure" guided lookup: routes the visitor by what the OFFICIAL Fannie/Freddie
+   lookups told them. Their address/SSN goes only to the GSE sites — never here. */
+function lookupSays(k){
+  if (k==="neither"){
+    $("investorNote").innerHTML = `<div class="callout">
+      <strong>Neither one — so it's most likely FHA, VA, or bank-held.</strong>
+      <p class="small" style="margin:8px 0 0">Your monthly statement usually says which: FHA loans show an <strong>FHA case number</strong>; VA loans mention <strong>VA</strong> on the statement or original loan papers (a VA funding fee at closing is a giveaway). A loan from a credit union or local bank with none of those marks is likely bank-held.</p>
+      <div class="seg small" role="group" aria-label="Loan type" style="margin-top:10px">
+        <button type="button" onclick="lookupSays('fha')">It's FHA</button>
+        <button type="button" onclick="lookupSays('va')">It's VA</button>
+        <button type="button" onclick="lookupSays('other')">Bank / other</button>
+        <button type="button" onclick="checkAllPrograms()">Still not sure — check all three</button>
+      </div>
+    </div>`;
+    return;
+  }
+  const b=document.querySelector('#investorSeg button[data-v="'+k+'"]');
+  if (b) b.click();   // real seg click → pressed state + onInvestor routing, one code path
 }
 function checkAllPrograms(){
   segState.investor="all";
