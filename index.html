@@ -189,6 +189,12 @@
   .wizslot .inline input{flex:1 1 100%}
   /* Auto-scroll at finish must clear the sticky header */
   #resultsCard,#fhaModule,#vaModule,#wizCard{scroll-margin-top:64px}
+  /* Step 1 option cards: full-width choices with a "how you'd know" hint line */
+  .optlist{flex-direction:column;align-items:stretch;gap:10px}
+  .optlist button{text-align:left;padding:13px 16px;white-space:normal;line-height:1.35}
+  .optlist button .ohint{display:block;font-weight:400;font-size:13.5px;line-height:1.45;color:var(--muted);margin-top:3px}
+  .optlist button[aria-pressed=true] .ohint{color:rgba(255,255,255,.85)}
+  .optlist button.notsure{border:2px solid var(--accent);color:var(--accent-ink);font-weight:700}
   /* Guided-lookup buttons in the "Not sure" flow */
   .callout .lookbtn{display:inline-block;background:var(--accent);color:#fff;font-weight:600;font-size:15px;
     padding:11px 16px;border-radius:var(--radius);text-decoration:none;margin:4px 8px 4px 0;min-height:44px;box-sizing:border-box}
@@ -267,12 +273,19 @@
 
   <!-- ===================== STEP 1: LOAN TYPE / INVESTOR ==================== -->
   <div class="card" id="step1">
-    <div class="seg" id="investorSeg" role="group" aria-label="Loan owner">
-      <button type="button" data-v="gse">Fannie Mae or Freddie Mac</button>
-      <button type="button" data-v="notsure">Not sure</button>
-      <button type="button" data-v="fha">FHA</button>
-      <button type="button" data-v="va">VA</button>
-      <button type="button" data-v="other">Other / portfolio</button>
+    <h3 style="font-size:19px;margin:0 0 4px">What kind of mortgage do you have?</h3>
+    <p class="hint" style="margin-bottom:14px">Tap the one that sounds like yours. Not sure? That's most people — tap the last option and we'll figure it out together.</p>
+    <div class="seg optlist" id="investorSeg" role="group" aria-label="Loan type">
+      <button type="button" data-v="va">VA loan
+        <span class="ohint">You or your co-borrower served in the military and used the VA home-loan benefit.</span></button>
+      <button type="button" data-v="fha">FHA loan
+        <span class="ohint">Often started with a low down payment (around 3.5%). Your statement or closing papers say "FHA" or show an FHA case number.</span></button>
+      <button type="button" data-v="gse">Conventional — Fannie Mae or Freddie Mac
+        <span class="ohint">The most common kind — a regular loan with no FHA or VA involvement. You may have gotten a letter from Fannie Mae or Freddie Mac after closing.</span></button>
+      <button type="button" data-v="other">Something else
+        <span class="ohint">A jumbo loan, private financing, or a local bank / credit union that keeps its own loans.</span></button>
+      <button type="button" data-v="notsure" class="notsure">I'm not sure — help me figure it out
+        <span class="ohint">Two or three quick taps. No paperwork needed to start.</span></button>
     </div>
     <div id="investorNote"></div>
   </div>
@@ -1585,21 +1598,7 @@ function onInvestor(v){
   if (v==="gse"){
     startWizard("gse");
   } else if (v==="notsure"){
-    note.innerHTML = `<div class="callout">
-      <strong>Let's find out who owns your loan — about a minute, and it makes your answer exact.</strong>
-      <p class="small" style="margin:8px 0 0">Tap each lookup below — it opens the <em>official</em> site in a new tab. You'll enter your address and the last 4 digits of your SSN directly with them; nothing you type there is entered on, seen by, or sent to this site.</p>
-      <p style="margin:10px 0 0">
-        <a class="lookbtn" href="https://yourhome.fanniemae.com/calculators-tools/loan-lookup" target="_blank" rel="noopener">1 · Check Fannie Mae ↗</a>
-        <a class="lookbtn" href="https://myhome.freddiemac.com/resources/loanlookup" target="_blank" rel="noopener">2 · Check Freddie Mac ↗</a>
-      </p>
-      <p class="small" style="margin:14px 0 6px"><strong>Then tap what they said:</strong></p>
-      <div class="seg small" role="group" aria-label="Lookup result">
-        <button type="button" onclick="lookupSays('gse')">Fannie Mae owns it</button>
-        <button type="button" onclick="lookupSays('gse')">Freddie Mac owns it</button>
-        <button type="button" onclick="lookupSays('neither')">Neither one</button>
-        <button type="button" onclick="checkAllPrograms()">I can't check right now</button>
-      </div>
-    </div>`;
+    nsStage("va");
   } else if (v==="fha"){
     startWizard("fha");
   } else if (v==="va"){
@@ -2560,18 +2559,60 @@ function mirrorShared(){
     if (fh && map[h]) fh.value=map[h];
     if (vh && map[h]) vh.value=map[h]; }
 }
-/* "Not sure" guided lookup: routes the visitor by what the OFFICIAL Fannie/Freddie
-   lookups told them. Their address/SSN goes only to the GSE sites — never here. */
+/* "Not sure" triage, in the order a homeowner can actually answer:
+   1) VA (people know if they used a veteran's benefit)
+   2) FHA (one glance at the statement / closing memory)
+   3) Fannie/Freddie via the official lookups (address+SSN goes only to the GSE sites — never here) */
+function nsStage(stage){
+  const note=$("investorNote");
+  if (stage==="va"){
+    note.innerHTML = `<div class="callout">
+      <strong>No problem — three quick questions and we'll figure it out together.</strong>
+      <p class="small" style="margin:10px 0 6px"><strong>First:</strong> did you or your co-borrower serve in the military and use a VA loan to buy or refinance this home?</p>
+      <div class="seg small" role="group" aria-label="VA benefit used">
+        <button type="button" onclick="lookupSays('va')">Yes — it's a VA loan</button>
+        <button type="button" onclick="nsStage('fha')">No</button>
+        <button type="button" onclick="nsStage('fha')">Not sure</button>
+      </div>
+    </div>`;
+    return;
+  }
+  if (stage==="fha"){
+    note.innerHTML = `<div class="callout">
+      <p class="small" style="margin:0 0 6px"><strong>Next:</strong> glance at your latest mortgage statement (paper or your servicer's app) — or think back to closing. Do you see <strong>"FHA"</strong> or an <strong>"FHA case number"</strong> anywhere? FHA loans often began with a low down payment, around 3.5%.</p>
+      <div class="seg small" role="group" aria-label="FHA on statement">
+        <button type="button" onclick="lookupSays('fha')">Yes — it says FHA</button>
+        <button type="button" onclick="nsStage('lookup')">No FHA anywhere</button>
+        <button type="button" onclick="checkAllPrograms()">I can't check right now</button>
+      </div>
+    </div>`;
+    return;
+  }
+  // stage === "lookup"
+  note.innerHTML = `<div class="callout">
+    <strong>That points to a conventional loan — one last step makes it exact.</strong>
+    <p class="small" style="margin:8px 0 0">Most conventional loans are backed by Fannie Mae or Freddie Mac. Each has a free <em>official</em> lookup — tap both below (each opens in a new tab). You'll enter your address and the last 4 digits of your SSN directly with them; nothing you type there is entered on, seen by, or sent to this site.</p>
+    <p style="margin:10px 0 0">
+      <a class="lookbtn" href="https://yourhome.fanniemae.com/calculators-tools/loan-lookup" target="_blank" rel="noopener">1 · Check Fannie Mae ↗</a>
+      <a class="lookbtn" href="https://myhome.freddiemac.com/resources/loanlookup" target="_blank" rel="noopener">2 · Check Freddie Mac ↗</a>
+    </p>
+    <p class="small" style="margin:14px 0 6px"><strong>Then tap what they said:</strong></p>
+    <div class="seg small" role="group" aria-label="Lookup result">
+      <button type="button" onclick="lookupSays('gse')">Fannie Mae owns it</button>
+      <button type="button" onclick="lookupSays('gse')">Freddie Mac owns it</button>
+      <button type="button" onclick="lookupSays('neither')">Neither one</button>
+      <button type="button" onclick="checkAllPrograms()">I can't check right now</button>
+    </div>
+  </div>`;
+}
 function lookupSays(k){
   if (k==="neither"){
     $("investorNote").innerHTML = `<div class="callout">
-      <strong>Neither one — so it's most likely FHA, VA, or bank-held.</strong>
-      <p class="small" style="margin:8px 0 0">Your monthly statement usually says which: FHA loans show an <strong>FHA case number</strong>; VA loans mention <strong>VA</strong> on the statement or original loan papers (a VA funding fee at closing is a giveaway). A loan from a credit union or local bank with none of those marks is likely bank-held.</p>
+      <strong>Neither one — then your bank or investor likely keeps the loan itself.</strong>
+      <p class="small" style="margin:8px 0 0">Since it's not VA, not FHA, and not Fannie or Freddie, it's most likely a portfolio loan (common with credit unions and local banks), a jumbo loan, or private financing. Tap below to see what that means for you — or run all three rulebooks anyway if you'd rather double-check.</p>
       <div class="seg small" role="group" aria-label="Loan type" style="margin-top:10px">
-        <button type="button" onclick="lookupSays('fha')">It's FHA</button>
-        <button type="button" onclick="lookupSays('va')">It's VA</button>
-        <button type="button" onclick="lookupSays('other')">Bank / other</button>
-        <button type="button" onclick="checkAllPrograms()">Still not sure — check all three</button>
+        <button type="button" onclick="lookupSays('other')">Show me my options</button>
+        <button type="button" onclick="checkAllPrograms()">Check all three anyway</button>
       </div>
     </div>`;
     return;
