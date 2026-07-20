@@ -3,7 +3,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="description" content="A free educational estimate of the mortgage assistance options — modification, partial claim, deferral, forbearance — you may qualify for. Nothing is saved or sent.">
-<title>Loss Mitigation Guide — Educational Estimator</title>
+<title>Loss Mit Check — Educational Estimator</title>
 
 <!--
   GSE (Fannie Mae / Freddie Mac) mortgage-assistance qualification screener — v1.
@@ -185,7 +185,7 @@
 
   <nav class="nav" aria-label="Primary">
     <div class="navin">
-      <a href="#top" class="brand">Loss Mitigation Guide</a>
+      <a href="#top" class="brand">Loss Mit Check</a>
       <div class="navlinks">
         <a href="#top">Start</a>
         <a href="#resources">Get help</a>
@@ -1599,7 +1599,7 @@ function copySummary(){
   // js-6: copy exactly what's on screen (fall back to a rebuild only if needed).
   const cards = window.__lastCards || buildCards(s, currentModRate());
   const lines = [];
-  lines.push("LOSS MITIGATION GUIDE — SUMMARY");
+  lines.push("LOSS MIT CHECK — SUMMARY");
   lines.push("(Informational estimate only — not an approval. Servicer decides.)");
   lines.push("Loan owner: " + ({gse:"Fannie Mae or Freddie Mac (conventional/GSE — evaluated together)"}[s.investor]||s.investor));
   lines.push("Loan age: " + (s.monthsSinceOrig==null?"?":(s.monthsSinceOrig+" months"+(s.origDate?(" (orig. "+s.origDate+")"):""))));
