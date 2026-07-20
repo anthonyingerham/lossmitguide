@@ -14,12 +14,8 @@
   Payment math ported from waterfall.py and checked against its test vector on load
   (see runSelfTests() — a red banner appears if the port ever drifts).
 
-  SECURITY NOTE ABOUT THE PASSWORD GATE:
-  The passphrase gate below is a convenience screen, NOT real security. Anyone who can
-  load this file can read the passphrase in the page source. It only keeps casual visitors
-  out. For actual access control when you host this, put it behind host-level protection
-  (e.g. Cloudflare Access, Netlify/Vercel password protection, or HTTP basic auth).
-  Change ACCESS_PASSPHRASE below to whatever your team should type.
+  If access control is ever needed, use host-level protection (e.g. Cloudflare Access,
+  Netlify password protection, or HTTP basic auth) — never a passphrase in page source.
 -->
 
 <style>
@@ -73,6 +69,10 @@
   .disclaimer-block{margin-top:30px;background:var(--card);border-radius:var(--radius);padding:24px 26px}
   .disclaimer-block h3{font-size:17px;font-weight:600;letter-spacing:-.012em;margin:0 0 10px}
   .disclaimer-block p{color:var(--muted);font-size:13px;line-height:1.6;margin:0 0 12px;letter-spacing:-.004em}
+  .legalline{color:var(--muted);font-size:13px;line-height:1.7;margin:20px 0 0;padding-top:14px;border-top:1px solid var(--line)}
+  .legalline a{color:var(--accent)}
+  .resultstop{background:var(--warn-soft);border-left:4px solid var(--warn-line);border-radius:var(--radius);
+    padding:10px 14px;font-size:14px;line-height:1.5;color:var(--ink);margin:0 0 14px}
 
   .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
     padding:22px 24px;margin:16px 0}
@@ -216,9 +216,6 @@
   body.wizard #vaModule .grid,  body.wizard #vaModule h3,  body.wizard #vaModule .hint,
   body.wizard #fhaHecmNote{display:none}
 </style>
-
-<!-- Passphrase gate removed for now (re-add later): restore the #gate block, the gate()
-     IIFE in the script, and #app{display:none}, then set a passphrase in ACCESS_PASSPHRASE. -->
 
 <!-- ================================ APP ================================== -->
 <div id="app">
@@ -889,10 +886,14 @@
 
     <div class="disclaimer-block" id="disclaimer">
       <h3>Important — please read</h3>
-      <p><strong>For educational purposes only.</strong> This is a free estimate based on published Fannie Mae, Freddie Mac, FHA, and VA guidelines. It is <strong>not legal, financial, or tax advice</strong>, and it is not an approval, offer, or guarantee. Only your mortgage servicer and the company that owns or insures your loan can decide whether you actually qualify and what your terms would be — and they are not required to change your loan.</p>
+      <p><strong>For educational purposes only.</strong> This is a free estimate based on published Fannie Mae, Freddie Mac, FHA, and VA guidelines. It is <strong>not legal, financial, or tax advice, and it is not a substitute for the advice of an attorney</strong>, and it is not an approval, offer, or guarantee. Only your mortgage servicer and the company that owns or insures your loan can decide whether you actually qualify and what your terms would be — and they are not required to change your loan.</p>
       <p>This is <strong>not a government website</strong> and is not affiliated with, endorsed by, or approved by any government agency, HUD, the FHA, the U.S. Department of Veterans Affairs, Fannie Mae, Freddie Mac, or your lender or loan servicer. It does <strong>not collect, store, or transmit any of your information</strong> and it will never contact your lender for you.</p>
       <p><strong>Keep making your mortgage payments and stay in contact with your servicer.</strong> You may stop using this tool at any time. Be careful of scams: no legitimate service should ask you to pay a fee in advance, stop paying your mortgage, or stop talking to your servicer, and you should never pay for help before you have a signed offer from your servicer in hand.</p>
+      <p><strong>Why is this free?</strong> This site charges nothing, shows no ads, sells nothing, collects nothing, and receives no compensation of any kind related to your mortgage or the choices you make. Program criteria were last verified against the published guidelines in July 2026.</p>
     </div>
+
+    <p class="legalline">© 2026 LossMitCheck.com &nbsp;·&nbsp; <a href="legal.html#privacy">Privacy Policy</a> &nbsp;·&nbsp; <a href="legal.html#terms">Terms of Use</a> &nbsp;·&nbsp; <a href="legal.html#accessibility">Accessibility</a><br>
+    Free educational tool. Estimates only — not an eligibility determination. Not affiliated with any government agency, Fannie Mae, Freddie Mac, or any lender or servicer.</p>
   </section>
 
 </div>
@@ -902,15 +903,8 @@
 "use strict";
 
 /* ============================ CONFIG ============================ */
-// Change this to your team's passphrase. See the security note at the top of this file:
-// this is a convenience screen only, not real access control.
-const ACCESS_PASSPHRASE = "xha2026";
-
 const DEFAULT_FM_MOD_RATE = 6.500;          // percent, effective 2026-06-12 (RULES §5)
 const RATE_STALE_DAYS = 45;                 // nag if the mod rate is older than this
-
-/* Passphrase gate removed for now — the app renders directly. To re-add: restore the
-   #gate markup, this IIFE, and #app{display:none}, and set ACCESS_PASSPHRASE above. */
 
 /* ======================== MATH: PAYMENT ======================== */
 // Standard amortized payment. Ported from waterfall.py.
@@ -1572,9 +1566,12 @@ function recommendedPath(s, cards){
   return null;
 }
 
+const RESULTS_TOP = `<p class="resultstop">Estimates from published criteria — not an approval. Only your servicer can decide, and your servicer may not agree to change your loan.</p>`;
+
 function renderResults(cards, s, opts){
   opts = opts||{};
-  let html = "";
+  // Unavoidable, top-of-results (MARS §1015.4(a)-style, voluntary): estimate framing + servicer-decides.
+  let html = RESULTS_TOP;
   const modDays = modRateAgeDays();
   if (modDays!=null && modDays>RATE_STALE_DAYS){
     html += `<div class="banner changed">The modification interest rate in Settings is ${modDays} days old and changes roughly monthly. Confirm the current value from the exhibit PDF before relying on the payment estimate.</div>`;
@@ -1615,7 +1612,7 @@ function disclaimerHTML(program){
   const guide = program==="fha" ? "published FHA guidelines"
               : program==="va" ? "published VA guidelines"
               : "published Fannie Mae and Freddie Mac guidelines";
-  return `<div class="disclaimer"><strong>For educational purposes only.</strong> This is a free estimate based on ${guide} — not an approval, offer, or guarantee, and not legal, financial, or tax advice. Only your mortgage servicer and the company that owns or insures your loan can decide whether you qualify and what your actual terms would be, and they are not required to change your loan. This tool is not associated with or approved by the government, your lender, or your loan servicer. Keep making your mortgage payments and stay in contact with your servicer. <a href="#resources">Free help is available →</a></div>`;
+  return `<div class="disclaimer"><strong>For educational purposes only.</strong> This is a free estimate based on ${guide} (last verified July 2026) — not an approval, offer, or guarantee, and not legal, financial, or tax advice. Only your mortgage servicer and the company that owns or insures your loan can decide whether you qualify and what your actual terms would be, and they are not required to change your loan. Figures assume the accuracy of what you entered; your servicer's numbers may differ. This tool is not associated with or approved by the government, your lender, or your loan servicer. Keep making your mortgage payments and stay in contact with your servicer. By using these results you acknowledge the <a href="legal.html#terms">Terms of Use</a>. <a href="#resources">Free help is available →</a></div>`;
 }
 
 /* Investor selection behavior */
@@ -1891,7 +1888,7 @@ function renderFHA(r, s){
 function runFHA(){
   if (segState.investor==="all") mirrorShared();
   const s=readFHA(); const r=evalFHA(s);
-  $("fhaResults").innerHTML = renderFHA(r,s);
+  $("fhaResults").innerHTML = RESULTS_TOP + renderFHA(r,s);
 }
 function syncFhaImminent(){
   const mb=num("fhaMonthsBehind");
@@ -2050,7 +2047,7 @@ function renderVA(r, s){
 function runVA(){
   if (segState.investor==="all") mirrorShared();
   const s=readVA(); const r=evalVA(s);
-  $("vaResults").innerHTML = renderVA(r,s);
+  $("vaResults").innerHTML = RESULTS_TOP + renderVA(r,s);
 }
 
 /* ===== Outcome confidence (likelihood the estimate matches the servicer's answer) =====
