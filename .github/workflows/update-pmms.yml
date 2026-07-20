@@ -1,0 +1,22 @@
+# Refreshes pmms.json weekly from FRED (Freddie Mac PMMS 30-yr rate).
+# PMMS updates Thursdays ~noon ET; this runs Fridays so it always catches the new value.
+# The commit triggers Netlify's auto-deploy, so the live site updates itself.
+name: update-pmms
+on:
+  schedule:
+    - cron: "0 16 * * 5"   # Fridays 16:00 UTC
+  workflow_dispatch:        # lets you run it manually from the Actions tab any time
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./update-pmms.sh
+      - run: |
+          git config user.name  "pmms-bot"
+          git config user.email "pmms-bot@users.noreply.github.com"
+          git add pmms.json
+          git commit -m "PMMS weekly auto-update" || echo "no change this week"
+          git push

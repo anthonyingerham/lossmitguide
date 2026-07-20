@@ -1,0 +1,2320 @@
+<!DOCTYPE html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="A free educational estimate of the mortgage assistance options — modification, partial claim, deferral, forbearance — you may qualify for. Nothing is saved or sent.">
+<title>Loss Mitigation Guide — Educational Estimator</title>
+
+<!--
+  GSE (Fannie Mae / Freddie Mac) mortgage-assistance qualification screener — v1.
+  Single-file static app. No framework, no build step, no backend. Works from file://.
+  All computation is client-side. Nothing is stored or transmitted; no PII leaves the browser.
+
+  Source of truth for all logic: RULES.md (Fannie Mae Servicing Guide, read 2026-07-18).
+  Payment math ported from waterfall.py and checked against its test vector on load
+  (see runSelfTests() — a red banner appears if the port ever drifts).
+
+  SECURITY NOTE ABOUT THE PASSWORD GATE:
+  The passphrase gate below is a convenience screen, NOT real security. Anyone who can
+  load this file can read the passphrase in the page source. It only keeps casual visitors
+  out. For actual access control when you host this, put it behind host-level protection
+  (e.g. Cloudflare Access, Netlify/Vercel password protection, or HTTP basic auth).
+  Change ACCESS_PASSPHRASE below to whatever your team should type.
+-->
+
+<style>
+  /* ===== Design tokens — professional government-style (USWDS-inspired, light) ===== */
+  :root{
+    color-scheme:light;
+    --bg:#f7f9fa; --card:#ffffff; --ink:#1b1b1b; --muted:#565c65; --line:#dfe1e2;
+    --field:#ffffff; --field-line:#71767a;
+    --header:#1a4480; --header-ink:#ffffff;
+    --accent:#005ea2; --accent-press:#1a4480; --accent-soft:#e1eefb; --accent-ink:#005ea2;
+    --ok:#00752f; --ok-soft:#ecf3ec; --ok-line:#9bd0a5;
+    --warn:#8a5a00; --warn-soft:#faf3d1; --warn-line:#e5c457;
+    --bad:#b50909; --bad-soft:#f8e1de; --bad-line:#e9a29a;
+    --focus:#2491ff;
+    --radius:4px; --radius-sm:4px; --radius-pill:4px;
+    --shadow:none; --shadow-lg:0 2px 8px rgba(0,0,0,.08);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:var(--bg); color:var(--ink);
+    font:16px/1.5 "Segoe UI",-apple-system,BlinkMacSystemFont,Roboto,"Helvetica Neue",Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased; -moz-osx-font-smoothing:grayscale;
+  }
+  html{scroll-behavior:smooth}
+  [id]{scroll-margin-top:70px}
+  .wrap{max-width:820px;margin:0 auto;padding:40px 22px 40px}
+
+  /* Government-style header band + notice bar */
+  .nav{position:sticky;top:0;z-index:40;background:var(--header)}
+  .nav .navin{max-width:980px;margin:0 auto;padding:0 22px;height:52px;display:flex;align-items:center;justify-content:space-between}
+  .nav .brand{font-size:17px;font-weight:700;color:var(--header-ink)}
+  .nav .brand:hover{text-decoration:none}
+  .nav .navlinks{display:flex;gap:24px}
+  .nav .navlinks a{font-size:14px;color:#dce4ef}
+  .nav .navlinks a:hover{color:#fff;text-decoration:underline}
+  @media(max-width:520px){.nav .navlinks{gap:15px} .nav .navlinks a{font-size:13px}}
+
+  /* Hero — plain, left-aligned, institutional */
+  .hero{margin:30px 0 26px;text-align:left}
+  .hero h1{font-size:clamp(28px,5vw,38px);line-height:1.15;margin:0 0 12px;font-weight:700}
+  .hero .sub{color:var(--muted);margin:0;max-width:60ch;font-size:17px;line-height:1.45}
+  .edu-note{margin:16px 0 0;max-width:none;background:var(--accent-soft);border-left:4px solid var(--accent);border-radius:var(--radius-sm);padding:12px 16px;font-size:14px;line-height:1.5;color:var(--ink)}
+
+  /* Resources + legal footer */
+  .sitefoot{margin:40px 0 0;padding:34px 0 0;border-top:1px solid var(--line)}
+  .sitefoot h2{font-size:26px;letter-spacing:-.02em;font-weight:600;margin:0 0 6px}
+  .sitefoot .foot-lead{color:var(--muted);font-size:16px;margin:0 0 16px;letter-spacing:-.01em}
+  .sitefoot .reslist{margin:0;padding-left:20px}
+  .sitefoot .reslist li{margin:9px 0;font-size:15px;line-height:1.5;letter-spacing:-.008em}
+  .disclaimer-block{margin-top:30px;background:var(--card);border-radius:var(--radius);padding:24px 26px}
+  .disclaimer-block h3{font-size:17px;font-weight:600;letter-spacing:-.012em;margin:0 0 10px}
+  .disclaimer-block p{color:var(--muted);font-size:13px;line-height:1.6;margin:0 0 12px;letter-spacing:-.004em}
+
+  .card{background:var(--card);border:1px solid var(--line);border-radius:var(--radius);
+    padding:22px 24px;margin:16px 0}
+  .card h2{font-size:21px;margin:0 0 6px;font-weight:700;line-height:1.2}
+  .card h3{font-size:15px;font-weight:700}
+  .card .hint{color:var(--muted);font-size:15px;margin:0 0 16px;line-height:1.4}
+  .card.collapsed .body{display:none}
+
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:18px 20px}
+  @media(max-width:640px){.grid{grid-template-columns:1fr}}
+  .field{display:flex;flex-direction:column;gap:7px;min-width:0}
+  .field.full{grid-column:1/-1}
+  label{font-size:14px;font-weight:600;color:var(--ink);letter-spacing:-.01em}
+  label .opt{font-weight:400;color:var(--muted)}
+  .desc{font-size:13px;color:var(--muted);margin-top:0;letter-spacing:-.005em;line-height:1.4}
+  input[type=text],input[type=number],input[type=date],input[type=password],select,textarea{
+    font:inherit;font-size:17px;padding:12px 14px;border:1px solid var(--field-line);border-radius:var(--radius-sm);
+    background:var(--field);color:var(--ink);width:100%;appearance:none;-webkit-appearance:none;
+    transition:border-color .15s ease, box-shadow .15s ease}
+  textarea{resize:vertical;min-height:96px;line-height:1.4}
+  textarea:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+  select{background-image:url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path fill='%2386868b' d='M1 1l5 5 5-5'/></svg>");
+    background-repeat:no-repeat;background-position:right 14px center;padding-right:38px}
+  input:focus,select:focus{outline:none;border-color:var(--accent);box-shadow:0 0 0 4px var(--accent-soft)}
+  .inline{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  .inline input{flex:1 1 120px}
+  .prefix{position:relative}
+  .prefix input{padding-left:26px}
+  .prefix::before{content:"$";position:absolute;left:13px;top:50%;transform:translateY(-50%);color:var(--muted)}
+  .suffix-pct{position:relative}
+  .suffix-pct input{padding-right:30px}
+  .suffix-pct::after{content:"%";position:absolute;right:13px;top:50%;transform:translateY(-50%);color:var(--muted)}
+
+  .seg{display:inline-flex;flex-wrap:wrap;gap:8px}
+  .seg button{font:inherit;font-size:15px;font-weight:600;padding:9px 16px;border:1px solid var(--field-line);
+    background:var(--field);color:var(--ink);border-radius:var(--radius-sm);cursor:pointer;
+    transition:background .1s ease,border-color .1s ease,color .1s ease}
+  .seg button:hover{border-color:var(--accent);color:var(--accent-ink)}
+  .seg button[aria-pressed=true]{background:var(--accent);border-color:var(--accent);color:#fff}
+  .seg.small button{padding:8px 13px;font-size:14px}
+
+  button.primary{font:inherit;font-size:16px;font-weight:700;background:var(--accent);color:#fff;border:0;
+    border-radius:var(--radius-sm);padding:12px 22px;cursor:pointer;transition:background .1s ease}
+  button.primary:hover{background:var(--accent-press)}
+  button.ghost{font:inherit;font-size:16px;font-weight:600;background:#fff;color:var(--accent-ink);
+    border:2px solid var(--accent);border-radius:var(--radius-sm);padding:10px 20px;cursor:pointer}
+  button.ghost:hover{background:var(--accent-soft)}
+  .btnrow{display:flex;gap:12px;flex-wrap:wrap;margin-top:18px;align-items:center}
+
+  a{color:var(--accent-ink);text-decoration:none}
+  a:hover{text-decoration:underline}
+  .callout{background:var(--accent-soft);border:1px solid transparent;border-radius:var(--radius-sm);padding:15px 17px;font-size:15px;margin-top:10px;letter-spacing:-.01em;line-height:1.45}
+  .muted{color:var(--muted)}
+  .small{font-size:14px}
+  .tiny{font-size:13px}
+
+  /* result cards */
+  .result{border-radius:var(--radius);padding:20px 22px;margin:14px 0;background:var(--field);
+    border:1px solid var(--line);border-left:5px solid var(--line)}
+  .result.eligible{border-left-color:var(--ok)}
+  .result.ineligible{border-left-color:var(--bad)}
+  .result.info{border-left-color:var(--warn)}
+  .result .rhead{display:flex;justify-content:space-between;gap:10px;align-items:baseline;flex-wrap:wrap}
+  .result h3{font-size:19px;margin:0;letter-spacing:-.018em;font-weight:600}
+  .badge{font-size:11px;font-weight:600;letter-spacing:.03em;text-transform:uppercase;padding:4px 10px;border-radius:var(--radius-pill);white-space:nowrap}
+  .badge.eligible{background:var(--ok-soft);color:var(--ok);border:1px solid var(--ok-line)}
+  .badge.ineligible{background:var(--bad-soft);color:var(--bad);border:1px solid var(--bad-line)}
+  .badge.info{background:var(--warn-soft);color:var(--warn);border:1px solid var(--warn-line)}
+  .result ul{margin:10px 0 0;padding-left:20px}
+  .result li{margin:5px 0;font-size:15px;letter-spacing:-.01em}
+  .result .why{font-size:15px;margin:8px 0 0;letter-spacing:-.01em}
+  .result .conf{display:flex;gap:9px;align-items:baseline;flex-wrap:wrap;margin:10px 0 2px}
+
+  .terms{margin-top:16px;border-top:1px solid var(--line);padding-top:14px}
+  .terms table{border-collapse:collapse;width:100%;font-size:15px}
+  .terms td{padding:9px 2px;border-bottom:1px solid var(--line);letter-spacing:-.01em}
+  .terms td:last-child{text-align:right;font-variant-numeric:tabular-nums;font-weight:600}
+  .terms .big td{font-size:18px;border-bottom:0;padding-top:12px;font-weight:600}
+  .pill{display:inline-block;background:var(--accent-soft);color:var(--accent-ink);border-radius:var(--radius-pill);padding:3px 12px;font-size:13px;font-weight:600}
+
+  .banner{border-radius:var(--radius-sm);padding:15px 17px;font-size:15px;margin:0 0 16px;letter-spacing:-.01em;line-height:1.45}
+  .banner.rec{background:var(--accent-soft)}
+  .banner.changed{background:var(--warn-soft);color:var(--warn)}
+  .disclaimer{font-size:13px;color:var(--muted);border-top:1px solid var(--line);margin-top:22px;padding-top:16px;line-height:1.5}
+  #devwarn{display:none;background:var(--bad-soft);border:1px solid var(--bad-line);color:var(--bad);padding:13px 16px;border-radius:var(--radius-sm);margin:0 0 16px;font-size:14px}
+
+  .hidden{display:none !important}
+
+  /* ===== Accessibility + touch (no animation — professional/static) ===== */
+  @media (prefers-reduced-motion: reduce){
+    html{scroll-behavior:auto}
+    *,*::before,*::after{animation-duration:.01ms !important;transition-duration:.01ms !important;scroll-behavior:auto !important}
+  }
+  .seg button,.seg.small button{min-height:44px}
+  .nav .navlinks a,.nav .brand{display:inline-flex;align-items:center;min-height:44px}
+  a,button,select,input,label{-webkit-tap-highlight-color:transparent}
+  button,select,a{touch-action:manipulation}
+  a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+  input[type=date]{min-height:47px}
+  input[type=date]::-webkit-date-and-time-value{text-align:left}
+  /* Live-results status line */
+  .livestatus{font-size:14px;color:var(--muted);margin:2px 0 10px}
+</style>
+
+<!-- Passphrase gate removed for now (re-add later): restore the #gate block, the gate()
+     IIFE in the script, and #app{display:none}, then set a passphrase in ACCESS_PASSPHRASE. -->
+
+<!-- ================================ APP ================================== -->
+<div id="app">
+
+  <nav class="nav" aria-label="Primary">
+    <div class="navin">
+      <a href="#top" class="brand">Loss Mitigation Guide</a>
+      <div class="navlinks">
+        <a href="#top">Start</a>
+        <a href="#resources">Get help</a>
+        <a href="#disclaimer">Disclaimer</a>
+      </div>
+    </div>
+  </nav>
+
+<div class="wrap">
+
+  <header class="hero" id="top">
+    <h1>See what mortgage help you may qualify for</h1>
+    <div class="edu-note"><strong>For educational purposes only.</strong> This is an estimate, not advice or an approval. It will never contact your lender or collect your information, and your mortgage servicer always makes the final decision.</div>
+  </header>
+
+  <div id="devwarn"></div>
+
+  <!-- Settings: modification interest rate. Hidden from the public view (homeowners shouldn't
+       edit rates). To let staff manage it, remove the "hidden" class. The Fannie mod rate lives
+       in DEFAULT_FM_MOD_RATE; the PMMS rate auto-updates from pmms.json. -->
+  <div class="card collapsed hidden" id="settingsCard">
+    <div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer" onclick="toggleCard('settingsCard')">
+      <div>
+        <h2>Settings — Fannie Mae Modification Interest Rate</h2>
+        <p class="hint" style="margin:0">Currently <strong id="rateEcho">6.500%</strong> (effective <span id="dateEcho">2026-06-12</span>). Click to edit.</p>
+      </div>
+      <span class="muted" style="font-size:20px">⚙</span>
+    </div>
+    <div class="body" style="margin-top:14px">
+      <div class="grid">
+        <div class="field">
+          <label>Modification Interest Rate</label>
+          <div class="suffix-pct"><input type="number" id="modRate" step="0.001" value="6.500"></div>
+          <div class="desc">Changes roughly monthly. Update from the official exhibit.</div>
+        </div>
+        <div class="field">
+          <label>Effective date of that rate</label>
+          <input type="date" id="modRateDate" value="2026-06-12">
+          <div class="desc"><a href="https://singlefamily.fanniemae.com/media/document/pdf/fannie-mae-modification-interest-rate" target="_blank" rel="noopener">Open the exhibit PDF ↗</a></div>
+        </div>
+      </div>
+      <div id="rateStale" class="callout hidden" style="background:var(--warn-soft);border-color:var(--warn-line)"></div>
+    </div>
+  </div>
+
+  <!-- ===================== STEP 1: LOAN TYPE / INVESTOR ==================== -->
+  <div class="card" id="step1">
+    <div class="seg" id="investorSeg" role="group" aria-label="Loan owner">
+      <button type="button" data-v="gse">Fannie Mae or Freddie Mac</button>
+      <button type="button" data-v="notsure">Not sure</button>
+      <button type="button" data-v="fha">FHA</button>
+      <button type="button" data-v="va">VA</button>
+      <button type="button" data-v="other">Other / portfolio</button>
+    </div>
+    <div id="investorNote"></div>
+  </div>
+
+  <!-- ===================== PASTE-TO-FILL (collapsed) ====================== -->
+  <div class="card collapsed" id="pasteCard">
+    <div style="cursor:pointer" onclick="toggleCard('pasteCard')">
+      <span style="color:var(--accent-ink);font-weight:600">Paste loan details instead →</span>
+      <span class="muted small"> fills the form in one step (optional)</span>
+    </div>
+    <div class="body" style="margin-top:14px">
+      <textarea id="pasteBox" rows="5" placeholder="Paste text like:&#10;Original loan amount:&#10;$315,250&#10;Estimated interest rate:&#10;6.37% …" aria-label="Paste loan details"></textarea>
+      <div class="btnrow">
+        <button class="ghost" type="button" onclick="applyLoanPaste()">Fill fields from paste</button>
+      </div>
+      <div id="pasteOut" role="status" aria-live="polite"></div>
+    </div>
+  </div>
+
+  <!-- ===================== STEP 2: QUICK SCREEN =========================== -->
+  <div class="card hidden" id="step2">
+    <div class="grid">
+      <div class="field">
+        <label>When did the loan start?</label>
+        <div class="inline">
+          <select id="origMonth" data-months style="flex:1 1 110px"></select>
+          <input type="number" id="origYear" min="1960" max="2026" placeholder="year" style="flex:1 1 90px">
+        </div>
+      </div>
+
+      <div class="field">
+        <label>How many times has this loan been modified before?</label>
+        <select id="priorMods">
+          <option value="">Select…</option>
+          <option value="0">Never modified</option>
+          <option value="1">Once</option>
+          <option value="2">Twice</option>
+          <option value="3plus">3 or more times</option>
+          <option value="unsure">Not sure</option>
+        </select>
+        <div class="desc">Payment deferrals do not count as modifications.</div>
+      </div>
+
+      <div class="field full">
+        <label>How far behind are you? <span class="opt">— enter either one</span></label>
+        <div class="grid" style="gap:10px">
+          <div class="inline"><input type="number" id="monthsBehind" min="0" step="1" placeholder="payments missed"> <span class="muted small">payments behind</span></div>
+          <div class="prefix"><input type="number" id="arrearsDollars" min="0" placeholder="total past-due amount"></div>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Is a foreclosure sale scheduled?</label>
+        <select id="foreclosure">
+          <option value="">Select…</option>
+          <option value="no">No sale scheduled</option>
+          <option value="yes">Yes — a date is set</option>
+          <option value="unsure">Not sure</option>
+        </select>
+      </div>
+      <div class="field hidden" id="foreclosureDetail">
+        <label>Who is foreclosing, sale date &amp; state type</label>
+        <div class="inline">
+          <select id="foreclosureWho" style="flex:1 1 150px">
+            <option value="">Who is foreclosing?</option>
+            <option value="mortgage">Mortgage company</option>
+            <option value="hoa">HOA / condo association</option>
+            <option value="tax">Property-tax authority</option>
+            <option value="unsure">Not sure</option>
+          </select>
+          <input type="date" id="foreclosureDate" style="flex:1 1 140px">
+          <select id="foreclosureState" style="flex:1 1 130px">
+            <option value="">State type…</option>
+            <option value="judicial">Judicial</option>
+            <option value="nonjudicial">Non-judicial</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>Is the hardship temporary or long-term?</label>
+        <select id="hardshipDuration">
+          <option value="">Select…</option>
+          <option value="temporary">Temporary / short-term</option>
+          <option value="permanent">Long-term / permanent</option>
+          <option value="unsure">Not sure</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Has the hardship been resolved?</label>
+        <select id="hardshipResolved">
+          <option value="">Select…</option>
+          <option value="resolved">Yes — income recovered</option>
+          <option value="ongoing">No — still reduced</option>
+          <option value="unsure">Not verified yet</option>
+        </select>
+        <div class="desc">Answer from whether your income actually covers the payment again — your servicer verifies it.</div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ===================== STEP 3: FULL DETAILS =========================== -->
+  <div class="card hidden" id="step3">
+    <p class="hint">Leave anything unknown blank — the result will say what's missing.</p>
+
+    <h3 style="font-size:14px;margin:6px 0 2px">The loan</h3>
+    <div class="grid">
+      <div class="field">
+        <label>Loan type</label>
+        <select id="loanType">
+          <option value="fixed">Fixed rate</option>
+          <option value="arm">Adjustable (ARM)</option>
+          <option value="step">Step-rate</option>
+          <option value="io">Interest-only</option>
+        </select>
+      </div>
+      <div class="field hidden" id="atFinalWrap">
+        <label>Is it at its final rate?</label>
+        <div class="seg small" id="atFinalSeg" role="group">
+          <button type="button" data-v="yes">Yes</button>
+          <button type="button" data-v="no">No</button>
+        </div>
+      </div>
+      <div class="field hidden" id="armCapWrap">
+        <label>ARM lifetime cap <span class="opt">(if not at final rate)</span></label>
+        <div class="suffix-pct"><input type="number" id="armCap" step="0.001" placeholder="e.g. 9.5"></div>
+      </div>
+      <div class="field">
+        <label>Current interest rate</label>
+        <div class="suffix-pct"><input type="number" id="rate" step="0.001" placeholder="e.g. 7.5"></div>
+      </div>
+      <div class="field">
+        <label>Unpaid principal balance (UPB)</label>
+        <div class="prefix"><input type="number" id="upb" min="0" placeholder="e.g. 300000"></div>
+        <div class="desc">Not the payoff quote.</div>
+      </div>
+      <div class="field">
+        <label>Monthly payment (principal &amp; interest only)</label>
+        <div class="prefix"><input type="number" id="pi" min="0" placeholder="e.g. 2216.97"></div>
+        <div class="desc">P&amp;I only — do not include taxes/insurance here.</div>
+      </div>
+      <div class="field hidden" id="escrowWrap">
+        <label>Monthly escrow <span class="opt">(optional)</span></label>
+        <div class="prefix"><input type="number" id="escrow" min="0" placeholder="taxes + insurance"></div>
+        <div class="desc">Include it if your payment covers taxes and insurance.</div>
+      </div>
+      <div class="field">
+        <label>Remaining term</label>
+        <div class="inline"><input type="number" id="remTerm" min="1" placeholder="months"> <span class="muted small">months left</span></div>
+      </div>
+      <div class="field">
+        <label>Estimated property value</label>
+        <div class="prefix"><input type="number" id="propValue" min="0" placeholder="e.g. 320000"></div>
+      </div>
+      <div class="field">
+        <label>Where is that value from?</label>
+        <select id="propValueSource">
+          <option value="avm">Online estimate (Zillow, Redfin, bank app)</option>
+          <option value="appraisal">Recent appraisal (last 6 months)</option>
+          <option value="tax">Property-tax assessment</option>
+          <option value="guess">Rough guess</option>
+        </select>
+      </div>
+      <div class="field hidden" id="existingNIBWrap">
+        <label>Existing non-interest-bearing balance <span class="opt">(if any)</span></label>
+        <div class="prefix"><input type="number" id="existingNIB" min="0" placeholder="from a prior mod/deferral"></div>
+      </div>
+    </div>
+
+    <h3 style="font-size:14px;margin:18px 0 2px">History</h3>
+    <div class="grid">
+      <div class="field">
+        <label>Prior payment deferral in the last 12 months?</label>
+        <select id="priorDeferral">
+          <option value="">Select…</option>
+          <option value="no">No</option>
+          <option value="yes">Yes</option>
+          <option value="unsure">Not sure</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>A completed modification in the last 12 months?</label>
+        <select id="modLast12">
+          <option value="">Select…</option>
+          <option value="no">No</option>
+          <option value="yes">Yes</option>
+          <option value="unsure">Not sure</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>A failed trial-period plan in the last 12 months?</label>
+        <select id="failedTPP">
+          <option value="">Select…</option>
+          <option value="no">No</option>
+          <option value="yes">Yes</option>
+          <option value="unsure">Not sure</option>
+        </select>
+        <div class="desc">Converting a trial plan to forbearance is not a failure.</div>
+      </div>
+    </div>
+
+    <h3 style="font-size:14px;margin:18px 0 2px">Hardship</h3>
+    <div class="grid">
+      <div class="field full">
+        <label>What caused the hardship?</label>
+        <select id="hardshipType">
+          <option value="">Select…</option>
+          <option value="jobloss">Job loss / unemployment</option>
+          <option value="income">Income reduction</option>
+          <option value="death">Death of a borrower or wage earner</option>
+          <option value="disability">Disability or serious illness</option>
+          <option value="divorce">Divorce or legal separation</option>
+          <option value="separation">Separation of unmarried co-borrowers</option>
+          <option value="paymentIncrease">Payment increase (step-rate/ARM adjustment)</option>
+          <option value="expense">Expense increase</option>
+          <option value="disaster">Natural disaster (FEMA-declared / insured loss)</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="field full hidden" id="onNoteWrap">
+        <label>Are you a borrower named on the loan?</label>
+        <select id="onNote">
+          <option value="">Select…</option>
+          <option value="yes">Yes — I'm on the loan</option>
+          <option value="heir">No — I inherited or received the home</option>
+          <option value="ex">No — awarded the home in a divorce</option>
+        </select>
+      </div>
+    </div>
+
+    <h3 style="font-size:14px;margin:18px 0 2px">Ability to pay</h3>
+    <div class="grid">
+      <div class="field">
+        <label>Can you resume the full monthly payment going forward?</label>
+        <select id="canResume"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option><option value="unsure">Not sure</option></select>
+      </div>
+      <div class="field">
+        <label>Can you pay the full past-due amount now (reinstate)?</label>
+        <select id="canReinstate"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option><option value="unsure">Not sure</option></select>
+      </div>
+      <div class="field">
+        <label>Can you afford a short-term repayment plan (regular payment plus a bit extra)?</label>
+        <select id="canRepay"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option><option value="unsure">Not sure</option></select>
+      </div>
+    </div>
+
+    <!-- Imminent default block: only relevant when current or < 60 days late -->
+    <div id="imminentBlock" class="hidden">
+      <h3 style="font-size:14px;margin:18px 0 2px">Because you're less than 60 days late…</h3>
+      <div class="grid">
+        <div class="field">
+          <label>Is this your primary residence?</label>
+          <select id="occPrimary"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option><option value="unsure">Not sure</option></select>
+        </div>
+        <div class="field">
+          <label>Non-retirement cash reserves under $25,000?</label>
+          <select id="reserves25"><option value="">Select…</option><option value="yes">Yes — under $25k</option><option value="no">No — $25k or more</option><option value="unsure">Not sure</option></select>
+        </div>
+        <div class="field">
+          <label>Credit score</label>
+          <div class="seg small" id="ficoModeSeg" role="group">
+            <button type="button" data-v="exact">Enter exact</button>
+            <button type="button" data-v="band">Just ≤620?</button>
+          </div>
+        </div>
+        <div class="field" id="ficoExactWrap">
+          <label>Representative FICO <span class="opt">(lowest borrower)</span></label>
+          <input type="number" id="ficoExact" min="300" max="850" placeholder="e.g. 610">
+        </div>
+        <div class="field hidden" id="ficoBandWrap">
+          <label>Is the score 620 or below?</label>
+          <select id="ficoBand"><option value="">Select…</option><option value="yes">Yes — 620 or below</option><option value="no">No — above 620</option><option value="unsure">Not sure</option></select>
+        </div>
+        <div class="field">
+          <label>Two or more 30-day late payments in the last 6 months?</label>
+          <select id="lates2"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option><option value="unsure">Not sure</option></select>
+        </div>
+        <div class="field">
+          <label>Is housing expense more than 40% of gross monthly income?</label>
+          <select id="dti40"><option value="">Select…</option><option value="yes">Yes — over 40%</option><option value="no">No — 40% or less</option><option value="unsure">Not sure</option></select>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ===================== RESULTS (live) ================================= -->
+  <div class="card hidden" id="resultsCard">
+    <h2>Results</h2>
+    <p class="livestatus">Updates automatically as you answer — you can stop as soon as you have your answer.</p>
+    <div id="results" aria-live="polite"></div>
+  </div>
+
+  <!-- ===================== FHA MODULE ===================================== -->
+  <div class="card hidden" id="fhaModule">
+    <h2>FHA loss mitigation</h2>
+    <p class="hint">This is an estimate — your servicer and HUD make the final decision.</p>
+
+    <div class="grid">
+      <div class="field full">
+        <label>Is this a reverse mortgage (HECM) — a loan with no required monthly payments?</label>
+        <select id="fhaHecm">
+          <option value="no">No — a regular mortgage with monthly payments</option>
+          <option value="yes">Yes — a reverse mortgage</option>
+        </select>
+      </div>
+    </div>
+    <div class="callout hidden" id="fhaHecmNote"><strong>Reverse mortgages follow a different set of rules.</strong> This tool covers regular (forward) mortgages only. For a reverse-mortgage default (usually unpaid taxes or insurance), contact your servicer about a repayment plan or an "at-risk extension," and call a HUD-approved counselor at 888-995-4673 — that help is free.</div>
+
+    <div id="fhaForm">
+    <h3 style="font-size:14px;margin:16px 0 2px">The loan</h3>
+    <div class="grid">
+      <div class="field">
+        <label>When did the loan start?</label>
+        <div class="inline">
+          <select id="fhaOrigMonth" data-months style="flex:1 1 110px"></select>
+          <input type="number" id="fhaOrigYear" min="1960" max="2026" placeholder="year" style="flex:1 1 90px">
+        </div>
+      </div>
+      <div class="field">
+        <label>How far behind are you?</label>
+        <div class="inline"><input type="number" id="fhaMonthsBehind" min="0" step="1" placeholder="payments missed"> <span class="muted small">payments behind</span></div>
+      </div>
+      <div class="field">
+        <label>Exact total past-due amount <span class="opt">(optional — sharpens the estimate)</span></label>
+        <div class="prefix"><input type="number" id="fhaArrears" min="0" placeholder="reinstatement amount"></div>
+      </div>
+      <div class="field">
+        <label>Current interest rate</label>
+        <div class="suffix-pct"><input type="number" id="fhaRate" step="0.001" placeholder="e.g. 7.5"></div>
+      </div>
+      <div class="field">
+        <label>Unpaid principal balance (UPB)</label>
+        <div class="prefix"><input type="number" id="fhaUpb" min="0" placeholder="e.g. 250000"></div>
+        <div class="desc">Not the payoff quote.</div>
+      </div>
+      <div class="field">
+        <label>Monthly payment (P&amp;I only)</label>
+        <div class="prefix"><input type="number" id="fhaPi" min="0" placeholder="e.g. 1791.76"></div>
+      </div>
+      <div class="field hidden" id="fhaEscrowWrap">
+        <label>Monthly escrow <span class="opt">(optional)</span></label>
+        <div class="prefix"><input type="number" id="fhaEscrow" min="0" placeholder="taxes + insurance"></div>
+      </div>
+      <div class="field">
+        <label>Existing partial-claim / payment-supplement balance <span class="opt">(if any)</span></label>
+        <div class="prefix"><input type="number" id="fhaPriorPC" min="0" placeholder="leave blank if none"></div>
+      </div>
+      <!-- PMMS rate: hidden from the public view; auto-updates from pmms.json and feeds the estimate. -->
+      <div class="field hidden">
+        <label>Freddie Mac PMMS 30-yr rate <span class="opt">(sets the FHA Market Rate)</span></label>
+        <div class="suffix-pct"><input type="number" id="fhaPmms" step="0.001" value="6.500"></div>
+        <div class="desc" id="fhaPmmsNote">Market Rate = this rounded to ⅛% + 0.25 (30-yr) / + 0.50 (40-yr). <a href="https://www.freddiemac.com/pmms" target="_blank" rel="noopener">PMMS ↗</a></div>
+      </div>
+    </div>
+
+    <h3 style="font-size:14px;margin:18px 0 2px">Hardship &amp; goal</h3>
+    <div class="grid">
+      <div class="field">
+        <label>What caused the hardship?</label>
+        <select id="fhaHardship">
+          <option value="">Select…</option>
+          <option value="jobloss">Job loss / unemployment</option>
+          <option value="income">Income reduction</option>
+          <option value="expense">Housing-expense increase</option>
+          <option value="disability">Disability or serious illness</option>
+          <option value="death">Death of a borrower</option>
+          <option value="divorce">Divorce / legal separation</option>
+          <option value="disaster">Natural disaster (FEMA-declared / insured loss)</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="field hidden" id="fhaOnNoteWrap">
+        <label>Are you a borrower named on the loan?</label>
+        <select id="fhaOnNote">
+          <option value="">Select…</option>
+          <option value="yes">Yes — I'm on the loan</option>
+          <option value="no">No — I inherited or was awarded the home</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>In an active bankruptcy case?</label>
+        <select id="fhaBk"><option value="">Select…</option><option value="no">No</option><option value="yes">Yes</option><option value="unsure">Not sure</option></select>
+      </div>
+      <div class="field">
+        <label>Can they resume the current payment, or do they need it lowered?</label>
+        <select id="fhaBranch">
+          <option value="">Select…</option>
+          <option value="resume">Can resume the current payment (just needs to clear the past-due)</option>
+          <option value="reduce">Needs a lower monthly payment</option>
+        </select>
+      </div>
+    </div>
+
+    <h3 style="font-size:14px;margin:18px 0 2px">History &amp; eligibility</h3>
+    <div class="grid">
+      <div class="field">
+        <label>A permanent FHA home-retention option in the last 24 months?</label>
+        <select id="fha24mo"><option value="">Select…</option><option value="no">No</option><option value="yes">Yes</option><option value="unsure">Not sure</option></select>
+      </div>
+      <div class="field">
+        <label>Do any of these apply?</label>
+        <select id="fhaBars">
+          <option value="">Select…</option>
+          <option value="no">None of them</option>
+          <option value="yes">Yes — one or more applies</option>
+          <option value="unsure">Not sure</option>
+        </select>
+        <div class="desc">You own another FHA-insured home · an FHA insurance claim was paid on a past loan of yours in the last 3 years · you've been barred from federal programs · you owe unpaid federal debt (other than taxes). Pick "Not sure" if you're unsure.</div>
+      </div>
+    </div>
+
+    <!-- Imminent default: only when < 3 months behind -->
+    <div id="fhaImminent" class="hidden">
+      <h3 style="font-size:14px;margin:18px 0 2px">Because you're less than 3 months behind…</h3>
+      <div class="grid">
+        <div class="field">
+          <label>Current or less than 30 days past due, with a hardship that will stop the next payment?</label>
+          <select id="fhaImmDefault"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option><option value="unsure">Not sure</option></select>
+        </div>
+      </div>
+    </div>
+
+    </div><!-- /fhaForm -->
+    <p class="livestatus" style="margin-top:14px">Results update automatically as you answer.</p>
+    <div id="fhaResults" aria-live="polite"></div>
+  </div>
+
+  <!-- ===================== VA MODULE ====================================== -->
+  <div class="card hidden" id="vaModule">
+    <h2>VA loss mitigation</h2>
+    <p class="hint">This is an estimate — your servicer and the VA make the final decision.</p>
+
+    <h3 style="font-size:14px;margin:6px 0 2px">The loan</h3>
+    <div class="grid">
+      <div class="field">
+        <label>When did the loan start?</label>
+        <div class="inline">
+          <select id="vaOrigMonth" data-months style="flex:1 1 110px"></select>
+          <input type="number" id="vaOrigYear" min="1960" max="2026" placeholder="year" style="flex:1 1 90px">
+        </div>
+      </div>
+      <div class="field">
+        <label>How far behind are you?</label>
+        <div class="inline"><input type="number" id="vaMonthsBehind" min="0" step="1" placeholder="payments missed"> <span class="muted small">payments behind</span></div>
+      </div>
+      <div class="field">
+        <label>Exact total past-due amount <span class="opt">(optional — sharpens the estimate)</span></label>
+        <div class="prefix"><input type="number" id="vaArrears" min="0" placeholder="reinstatement amount"></div>
+      </div>
+      <div class="field">
+        <label>Current interest rate</label>
+        <div class="suffix-pct"><input type="number" id="vaRate" step="0.001" placeholder="e.g. 3.5"></div>
+      </div>
+      <div class="field">
+        <label>Unpaid principal balance (UPB)</label>
+        <div class="prefix"><input type="number" id="vaUpb" min="0" placeholder="e.g. 300000"></div>
+        <div class="desc">Not the payoff quote.</div>
+      </div>
+      <div class="field">
+        <label>Monthly payment (P&amp;I only)</label>
+        <div class="prefix"><input type="number" id="vaPi" min="0" placeholder="e.g. 1432.58"></div>
+      </div>
+      <div class="field hidden" id="vaEscrowWrap">
+        <label>Monthly escrow <span class="opt">(optional)</span></label>
+        <div class="prefix"><input type="number" id="vaEscrow" min="0" placeholder="taxes + insurance"></div>
+      </div>
+      <!-- PMMS rate: hidden from the public view; auto-updates from pmms.json and feeds the estimate. -->
+      <div class="field hidden">
+        <label>Freddie Mac PMMS 30-yr rate <span class="opt">(sets the mod-rate ceiling)</span></label>
+        <div class="suffix-pct"><input type="number" id="vaPmms" step="0.001" value="6.500"></div>
+        <div class="desc" id="vaPmmsNote">Mod-rate ceiling = lower of (this rounded to ⅛% + 0.50) and (current rate + 1.00). <a href="https://www.freddiemac.com/pmms" target="_blank" rel="noopener">PMMS ↗</a></div>
+      </div>
+    </div>
+
+    <h3 style="font-size:14px;margin:18px 0 2px">Eligibility</h3>
+    <div class="grid">
+      <div class="field">
+        <label>Is this your primary residence?</label>
+        <select id="vaPrimary"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option><option value="unsure">Not sure</option></select>
+      </div>
+      <div class="field">
+        <label>Does the current past-due amount include a payment first missed between March 2020 and May 2025 that is still unpaid?</label>
+        <select id="vaCovid"><option value="">Select…</option><option value="no">No</option><option value="yes">Yes</option><option value="unsure">Not sure</option></select>
+      </div>
+      <div class="field">
+        <label>Any prior VA partial claim, COVID-19 VA partial claim, or COVID refund modification?</label>
+        <select id="vaPriorPC"><option value="">Select…</option><option value="no">No</option><option value="yes">Yes</option><option value="unsure">Not sure</option></select>
+      </div>
+      <div class="field">
+        <label>Has this loan been modified before?</label>
+        <select id="vaPriorMod">
+          <option value="">Select…</option>
+          <option value="never">Never</option>
+          <option value="recent6">Yes — within the last 6 months</option>
+          <option value="within3">Yes — 6 months to 3 years ago</option>
+          <option value="over3">Yes — over 3 years ago</option>
+          <option value="unsure">Not sure</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>In an active bankruptcy case?</label>
+        <select id="vaBk"><option value="">Select…</option><option value="no">No</option><option value="yes">Yes</option><option value="unsure">Not sure</option></select>
+      </div>
+      <div class="field">
+        <label>Has a foreclosure been filed or noticed?</label>
+        <select id="vaFc"><option value="">Select…</option><option value="no">No</option><option value="yes">Yes</option><option value="unsure">Not sure</option></select>
+      </div>
+    </div>
+
+    <h3 style="font-size:14px;margin:18px 0 2px">Hardship &amp; ability to pay</h3>
+    <div class="grid">
+      <div class="field full">
+        <label>What caused the hardship?</label>
+        <select id="vaHardship">
+          <option value="">Select…</option>
+          <option value="jobloss">Job loss / unemployment</option>
+          <option value="income">Income reduction</option>
+          <option value="expense">Expense increase</option>
+          <option value="disability">Disability or serious illness</option>
+          <option value="death">Death of a borrower</option>
+          <option value="divorce">Divorce / separation</option>
+          <option value="disaster">Natural disaster (FEMA-declared / insured loss)</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="field full hidden" id="vaOnNoteWrap">
+        <label>Are you a borrower named on the loan?</label>
+        <select id="vaOnNote">
+          <option value="">Select…</option>
+          <option value="yes">Yes — I'm on the loan</option>
+          <option value="no">No — I inherited or was awarded the home</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Can you resume the normal payment within ~90 days?</label>
+        <select id="vaCanResume"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option><option value="unsure">Not sure</option></select>
+      </div>
+      <div class="field">
+        <label>Can you pay the full past-due amount soon (lump sum)?</label>
+        <select id="vaCanReinstate"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option><option value="unsure">Not sure</option></select>
+      </div>
+      <div class="field">
+        <label>Can you afford the normal payment plus a monthly catch-up?</label>
+        <select id="vaCanRepay"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option><option value="unsure">Not sure</option></select>
+      </div>
+    </div>
+
+    <p class="livestatus" style="margin-top:14px">Results update automatically as you answer.</p>
+    <div id="vaResults" aria-live="polite"></div>
+  </div>
+
+  <!-- ===================== RESOURCES + LEGAL FOOTER ===================== -->
+  <section class="sitefoot" id="resources" aria-label="Get help and disclaimers">
+    <h2>Talk to a real person — for free</h2>
+    <p class="foot-lead">This tool only shows what you <em>might</em> qualify for. To get actual help, these services are free and unbiased:</p>
+    <ul class="reslist">
+      <li><strong>HUD-approved housing counselor (free):</strong> call the Homeowner's HOPE™ Hotline at <a href="tel:+18889954673">888-995-HOPE (4673)</a>, or <a href="https://www.hud.gov/findacounselor" target="_blank" rel="noopener">find a counselor near you ↗</a>.</li>
+      <li><strong>Consumer Financial Protection Bureau:</strong> <a href="https://www.consumerfinance.gov/" target="_blank" rel="noopener">consumerfinance.gov ↗</a> — plain-language guides on your rights and options.</li>
+      <li><strong>Your mortgage servicer:</strong> the number is on your monthly statement. Ask about "loss mitigation" or "home-retention options" — and ask for any offer <em>in writing</em>.</li>
+    </ul>
+
+    <div class="disclaimer-block" id="disclaimer">
+      <h3>Important — please read</h3>
+      <p><strong>For educational purposes only.</strong> This is a free estimate based on published Fannie Mae, Freddie Mac, FHA, and VA guidelines. It is <strong>not legal, financial, or tax advice</strong>, and it is not an approval, offer, or guarantee. Only your mortgage servicer and the company that owns or insures your loan can decide whether you actually qualify and what your terms would be — and they are not required to change your loan.</p>
+      <p>This is <strong>not a government website</strong> and is not affiliated with, endorsed by, or approved by any government agency, HUD, the FHA, the U.S. Department of Veterans Affairs, Fannie Mae, Freddie Mac, or your lender or loan servicer. It does <strong>not collect, store, or transmit any of your information</strong> and it will never contact your lender for you.</p>
+      <p><strong>Keep making your mortgage payments and stay in contact with your servicer.</strong> You may stop using this tool at any time. Be careful of scams: no legitimate service should ask you to pay a fee in advance, stop paying your mortgage, or stop talking to your servicer, and you should never pay for help before you have a signed offer from your servicer in hand.</p>
+    </div>
+  </section>
+
+</div>
+</div>
+
+<script>
+"use strict";
+
+/* ============================ CONFIG ============================ */
+// Change this to your team's passphrase. See the security note at the top of this file:
+// this is a convenience screen only, not real access control.
+const ACCESS_PASSPHRASE = "xha2026";
+
+const DEFAULT_FM_MOD_RATE = 6.500;          // percent, effective 2026-06-12 (RULES §5)
+const RATE_STALE_DAYS = 45;                 // nag if the mod rate is older than this
+
+/* Passphrase gate removed for now — the app renders directly. To re-add: restore the
+   #gate markup, this IIFE, and #app{display:none}, and set ACCESS_PASSPHRASE above. */
+
+/* ======================== MATH: PAYMENT ======================== */
+// Standard amortized payment. Ported from waterfall.py.
+function pmt(principal, annualRatePct, months){
+  const r = annualRatePct/12/100;
+  if (r === 0) return principal/months;
+  return principal * r * Math.pow(1+r, months) / (Math.pow(1+r, months) - 1);
+}
+function round3(x){ return Math.round(x*1000)/1000; }
+
+/* ==================== FLEX MOD WATERFALL (F-1-27) ====================
+   Ported from waterfall.py and extended for v1:
+   - capitalizes an existing non-interest-bearing balance (RULES §5 step 1)
+   - accepts an explicit pre-mod P&I baseline (the payment the borrower actually
+     makes) so the 20% target is measured against reality, not a recomputed number
+   - solves forbearance to just PAST the 20% target (the guide wants the reduction
+     to exceed, not merely equal, 20%)
+   The test vector in runSelfTests() pins this to waterfall.py's expected outputs. */
+function flexModWaterfall(o){
+  const fmModRate = o.fmModRate ?? DEFAULT_FM_MOD_RATE;
+  const preUpb = o.preUpb, preRate = o.preRate, remainingTerm = o.remainingTerm;
+  const arrears = o.arrears || 0;
+  const existingNIB = o.existingNonIntBearing || 0;
+  const propertyValue = o.propertyValue;
+  const loanIsArmNotAtFinal = !!o.loanIsArmNotAtFinal;
+  const armLifetimeCap = (o.armLifetimeCap ?? null);
+
+  const computedPrePi = pmt(preUpb, preRate, remainingTerm);
+  const prePi = (o.prePiOverride != null && o.prePiOverride > 0) ? o.prePiOverride : computedPrePi;
+  const target = prePi * 0.80;                 // 20% reduction target
+  const solveTarget = target * (1 - 1e-6);     // "must EXCEED 20%" -> aim a hair below
+
+  // Step 1: capitalize eligible arrearages + any existing non-interest-bearing balance
+  const upb = preUpb + arrears + existingNIB;
+  const mtmltv = upb / propertyValue;
+
+  // Step 2: set the rate
+  let rate;
+  if (loanIsArmNotAtFinal){
+    rate = Math.max(preRate, fmModRate);
+    if (armLifetimeCap != null) rate = Math.min(rate, armLifetimeCap);
+  } else {
+    rate = preRate;                            // fixed, or ARM/step at final rate
+  }
+
+  // Step 3: reduce rate in 0.125% steps — only if MTMLTV >= 50% and rate > mod rate
+  if (mtmltv >= 0.50 && rate > fmModRate){
+    while (rate > fmModRate && pmt(upb, rate, remainingTerm) > target){
+      rate = Math.max(round3(rate - 0.125), fmModRate);
+    }
+  }
+
+  // Step 4: extend the term in 1-month steps, up to 480 months
+  let term = remainingTerm;
+  while (term < 480 && pmt(upb, rate, term) > target) term += 1;
+
+  // Step 5: principal forbearance — only if MTMLTV > 50%
+  let forbearance = 0;
+  if (pmt(upb, rate, term) > target && mtmltv > 0.50){
+    let lo = 0, hi = upb;
+    for (let i=0;i<100;i++){
+      const mid = (lo+hi)/2;
+      if (pmt(mid, rate, term) > solveTarget) hi = mid; else lo = mid;
+    }
+    const needed   = upb - lo;
+    const capLtv50 = Math.max(upb - 0.50*propertyValue, 0); // bring IB MTMLTV to 50%
+    const cap30    = 0.30 * upb;                            // 30% of gross post-mod UPB
+    forbearance = Math.min(needed, capLtv50, cap30);
+  }
+
+  const ibUpb = upb - forbearance;
+  const newPi = pmt(ibUpb, rate, term);
+  return {
+    prePi, computedPrePi, target, capitalizedUpb: upb, mtmltv,
+    newRate: rate, newTerm: term, forbearance, interestBearingUpb: ibUpb,
+    newPi, reductionPct: 1 - newPi/prePi,
+    hitTarget: newPi <= target + 0.01,
+  };
+}
+
+/* ============================ SELF-TESTS ============================ */
+function runSelfTests(){
+  const fails = [];
+  const r = flexModWaterfall({preUpb:300000, preRate:7.5, remainingTerm:300, arrears:18000, propertyValue:320000});
+  const check = (name, cond) => { if(!cond) fails.push(name); };
+  check("pre_pi≈2216.97", Math.abs(r.prePi - 2216.97) < 0.01);
+  check("cap_upb=318000", Math.abs(r.capitalizedUpb - 318000) < 0.01);
+  check("new_rate=6.500", Math.abs(r.newRate - 6.5) < 1e-9);
+  check("term=480", r.newTerm === 480);
+  check("forbearance≈15061", Math.abs(r.forbearance - 15061) < 5);
+  check("new_pi≈1773.58", Math.abs(r.newPi - 1773.58) < 0.05);
+  check("hitTarget", r.hitTarget === true);
+
+  // js-4: former "logged-only" sanity cases now GATE the drift banner.
+  const low = flexModWaterfall({preUpb:200000, preRate:7.5, remainingTerm:300, arrears:0, propertyValue:520000});
+  check("lowLTV-no-forbearance", low.forbearance===0);
+  check("lowLTV-rate-held", low.newRate===7.5);
+  check("lowLTV-payment-drops", low.newPi < low.prePi);
+  const arm = flexModWaterfall({preUpb:250000, preRate:4.0, remainingTerm:280, arrears:9000, propertyValue:300000, loanIsArmNotAtFinal:true, armLifetimeCap:9.5});
+  check("arm-rate-raised-to-mod-rate", arm.newRate>=6.5);
+  check("pmt-zero-rate", Math.abs(pmt(120000,0,120)-1000)<1e-9);
+  const psv = fhaPaymentSupplement(1800, 300, 9000, 3000);   // → MoPR 166.67 for 36 mo
+  check("fha-ps-mopr", psv.eligible && Math.abs(psv.moPR-166.6667)<0.01 && psv.moPR<=0.25*1800);
+  check("fha-ps-floor", fhaPaymentSupplement(1800, 300, 3600, 3000).eligible===false); // below 5%/$20 floor
+  check("va-pc-gate-clean", (function(){ const t=pcAvailableVA({upb:300000, primary:"yes", priorPC:"no", priorMod:"never", bk:"no", fc:"no", covid:"no", monthsSinceOrig:48, monthsBehind:6}, 8600); return t.clean===true; })());
+  check("va-pc-gate-asks-on-unknown", (function(){ const t=pcAvailableVA({upb:300000, primary:"", priorPC:"no", priorMod:"never", bk:"no", fc:"no", covid:"no", monthsSinceOrig:48, monthsBehind:6}, 8600); return !t.clean && t.ask.length>0; })());
+
+  // Paste-to-fill parser — pinned to a real DealMachine copy fixture (2026-07-19).
+  const dm = parseDealText("Original loan amount:\nhelp\n$315,250\nEstimated loan payment:\nhelp\n$1,965\nEstimated interest rate:\nhelp\n6.37%\nLast recording date:\nhelp\nMay 26th, 2026\nEstimated loan balance:\nhelp\n$315,250\nLoan type:\nhelp\nNew Conventional\nLoan term:\nhelp\n360 months\nFinancing type:\nhelp\nFixed Rate\nLoan maturity date:\nhelp\nJun 1st, 2056\nLender name:\nhelp\nOriginpoint Llc");
+  check("dm-rate", pctVal(dm["estimated interest rate"])===6.37);
+  check("dm-upb", moneyVal(dm["estimated loan balance"])===315250);
+  check("dm-pay", moneyVal(dm["estimated loan payment"])===1965);
+  check("dm-term", intVal(dm["loan term"])===360);
+  check("dm-maturity", (function(){ const d=parseHumanDate(dm["loan maturity date"]); return !!d && d.getFullYear()===2056 && d.getMonth()===5; })());
+  check("dm-derived-origination", (function(){ const d=addMonthsFirst(parseHumanDate(dm["loan maturity date"]), -360); return d.getFullYear()===2026 && d.getMonth()===5; })());
+  check("dm-loan-kind", /conventional/i.test(dm["loan type"]||""));
+
+  // FHA math (Appendix 4.0) — vector matches scratchpad/fha_math.mjs.
+  check("FHA market rate 30yr=6.75", Math.abs(fhaMarketRate(6.5,360)-6.75)<1e-9);
+  check("FHA market rate 40yr=7.00", Math.abs(fhaMarketRate(6.5,480)-7.00)<1e-9);
+  const fpi = pmt(250000,7.5,330);
+  const fb = fhaBranchB(fpi, 250000, 8000, 6.5, fhaPCavailable(250000,0));
+  check("FHA lands on Combination", /Combination/.test(fb.option));
+  check("FHA hits ~25% reduction", Math.abs((1-fb.newPI/fpi)-0.25)<0.005);
+
+  // VA math (§3737 + M26-4) — vector matches scratchpad/va_math.mjs.
+  check("VA rate ceiling capped at existing+1%", Math.abs(vaMaxModRate(6.5,3.5)-4.5)<1e-9);
+  check("VA PC cap 25%=75000", Math.abs(vaPartialClaimCap(300000,false)-75000)<1e-6);
+  check("VA PC cap 30%=90000", Math.abs(vaPartialClaimCap(300000,true)-90000)<1e-6);
+
+  const dev = document.getElementById("devwarn");
+  if (fails.length){
+    dev.style.display="block";
+    dev.textContent = "⚠ Waterfall self-test FAILED: " + fails.join(", ") + ". The payment math has drifted from waterfall.py — do not trust the estimate until fixed.";
+    console.error("Self-test failures:", fails);
+  } else {
+    console.log("[self-test] Waterfall test vector passed.");
+  }
+}
+
+/* ============================ HELPERS ============================ */
+const $ = id => document.getElementById(id);
+const num = id => { const v = parseFloat($(id).value); return isNaN(v) ? null : v; };
+const val = id => { const el=$(id); return el ? el.value : ""; };
+// (No programmatic scrolling/focus moves — results are live regions and update in place.)
+function fmtMoney(x){ return x==null||isNaN(x) ? "—" : "$"+x.toLocaleString(undefined,{minimumFractionDigits:0,maximumFractionDigits:0}); }
+function fmtMoney2(x){ return x==null||isNaN(x) ? "—" : "$"+x.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); }
+function fmtPct(x){ return (x*100).toFixed(1)+"%"; }
+function fmtRate(x){ return x.toFixed(3)+"%"; }
+function daysBetween(a,b){ return Math.round((b-a)/86400000); }
+function parseDate(s){ if(!s) return null; const d=new Date(s+"T00:00:00"); return isNaN(d)?null:d; }
+function todayDate(){ const d=new Date(); return new Date(d.getFullYear(),d.getMonth(),d.getDate()); }
+// Whole months between an origination date and today (null if blank/unparseable).
+function monthsSince(dateStr){
+  const d = parseDate(dateStr); if (!d) return null;
+  const t = todayDate();
+  let m = (t.getFullYear()-d.getFullYear())*12 + (t.getMonth()-d.getMonth());
+  if (t.getDate() < d.getDate()) m -= 1;   // not a full month into the current one yet
+  return m < 0 ? 0 : m;                    // future date clamps to 0 (reads as <12 months old)
+}
+
+/* segmented-button state */
+const segState = {};
+function setupSeg(segId, key, onChange){
+  const seg = $(segId);
+  seg.querySelectorAll("button").forEach(btn=>{
+    btn.setAttribute("aria-pressed","false");   // ui-05: expose toggle semantics from load
+    btn.addEventListener("click",()=>{
+      seg.querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed","false"));
+      btn.setAttribute("aria-pressed","true");
+      segState[key]=btn.dataset.v;
+      if(onChange) onChange(btn.dataset.v);
+    });
+  });
+}
+
+/* ============================ STATE READ ============================ */
+// Reads every input into one object. Missing numeric fields are null; missing
+// selects are "". Derives delinquency figures. This is the single source the
+// eligibility engine reads from.
+// Month+year controls → "YYYY-MM-01" (the day never affects any rule).
+function isoFromMY(mId, yId){
+  const m=num(mId), y=num(yId);
+  if (!m || !y || y<1900 || y>2100) return "";
+  return y+"-"+String(m).padStart(2,"0")+"-01";
+}
+
+function readState(){
+  const s = {};
+  s.investor = segState.investor || "";
+  s.origDate = isoFromMY("origMonth","origYear");
+  s.monthsSinceOrig = monthsSince(s.origDate); // computed from the origination month/year; null if blank
+  s.delinq = "behind";                         // v1 assumes the borrower is delinquent (no "current" path)
+  s.monthsBehindRaw = num("monthsBehind");
+  s.arrearsDollarsRaw = num("arrearsDollars");
+  s.priorMods = val("priorMods");
+  s.foreclosure = val("foreclosure");
+  s.foreclosureWho = val("foreclosureWho");
+  s.foreclosureDate = val("foreclosureDate");
+  s.foreclosureState = val("foreclosureState");
+  s.hardshipDuration = val("hardshipDuration");
+  s.hardshipResolved = val("hardshipResolved");
+  s.onNote = val("onNote");
+
+  s.loanType = val("loanType");
+  s.atFinal = segState.atFinal || "";
+  s.armCap = num("armCap");
+  s.rate = num("rate");
+  s.upb = num("upb");
+  s.pi = num("pi");
+  s.escrow = num("escrow");
+  s.remTerm = num("remTerm");
+  s.monthsToMaturity = s.remTerm;  // = remaining term for amortizing loans (maturity field removed)
+  s.propValue = num("propValue");
+  s.propValueSource = val("propValueSource") || "avm";
+  s.existingNIB = num("existingNIB");
+
+  s.priorDeferral = val("priorDeferral");
+  s.modLast12 = val("modLast12");
+  s.failedTPP = val("failedTPP");
+  s.hardshipType = val("hardshipType");
+
+  s.canResume = val("canResume");
+  s.canReinstate = val("canReinstate");
+  s.canRepay = val("canRepay");
+
+  s.occPrimary = val("occPrimary");
+  s.reserves25 = val("reserves25");
+  s.ficoMode = segState.ficoMode || "exact";
+  s.ficoExact = num("ficoExact");
+  s.ficoBand = val("ficoBand");
+  s.lates2 = val("lates2");
+  s.dti40 = val("dti40");
+
+  deriveDelinquency(s);
+  return s;
+}
+
+// Fills in months-behind / arrearage-dollars / days-past-due from whichever the
+// user gave, and flags when a number is our estimate rather than an entered value.
+function deriveDelinquency(s){
+  s.estimatedArrears = false;
+  s.estimatedMonthsBehind = false;
+  const fullMonthly = (s.pi||0) + (s.escrow||0);
+
+  // v1 always treats the borrower as behind; how far behind comes from either input.
+  s.monthsBehind = s.monthsBehindRaw;
+  s.arrearsDollars = s.arrearsDollarsRaw;
+
+  if (s.monthsBehind == null && s.arrearsDollars != null && fullMonthly > 0){
+    s.monthsBehind = Math.max(1, Math.round(s.arrearsDollars / fullMonthly));
+    s.estimatedMonthsBehind = true;
+  }
+  if (s.arrearsDollars == null && s.monthsBehind != null && fullMonthly > 0){
+    s.arrearsDollars = s.monthsBehind * fullMonthly;
+    s.estimatedArrears = true;
+  }
+  // days past due: use exact if given, else ~30/month
+  s.daysPastDue = (s.monthsBehind != null) ? s.monthsBehind * 30 : null;  // ~30 days per missed payment
+}
+
+/* delinquency-bucket helpers (return true/false/null where null = unknown).
+   The delinq==="current" guards are reserved for a future explicit current-borrower path
+   (s.delinq is currently hardcoded "behind"; monthsBehind=0 flows through daysPastDue=0). */
+function is60Plus(s){ if(s.delinq==="current") return false; if(s.daysPastDue==null) return null; return s.daysPastDue>=60; }
+function isUnder31(s){ if(s.delinq==="current") return true; if(s.daysPastDue==null) return null; return s.daysPastDue<31; }
+
+/* ============================ ELIGIBILITY ENGINE ============================
+   Each evaluator returns a card model:
+   { program, status:'eligible'|'ineligible'|'needs-info', reasons:[...], extra:{} }
+   'reasons' always explains WHY (requirement of the spec). */
+
+function evalImminentDefault(s){
+  // Only meaningful when current or < 60 days late. Returns {status, reasons}.
+  const reasons = [], missing = [];
+  // initial criteria
+  if (s.occPrimary === "no") return {status:"fail", reasons:["not a primary residence (imminent-default test requires it)"]};
+  if (s.occPrimary === "" || s.occPrimary==="unsure") missing.push("primary-residence status");
+  if (s.reserves25 === "no") return {status:"fail", reasons:["non-retirement cash reserves are $25,000 or more"]};
+  if (s.reserves25 === "" || s.reserves25==="unsure") missing.push("cash reserves under $25k?");
+  if (!s.hardshipType) missing.push("hardship type");
+
+  // hardship branch (any one qualifies outright)
+  const hardshipQualifies = ["death","disability","divorce","separation","paymentIncrease"].includes(s.hardshipType);
+
+  // credit branch
+  let ficoLE620 = null;
+  if (s.ficoMode === "exact") ficoLE620 = (s.ficoExact!=null) ? s.ficoExact<=620 : null;
+  else ficoLE620 = s.ficoBand==="yes" ? true : s.ficoBand==="no" ? false : null;
+  const lates = s.lates2==="yes" ? true : s.lates2==="no" ? false : null;
+  const dti = s.dti40==="yes" ? true : s.dti40==="no" ? false : null;
+  let creditQualifies = null;
+  if (ficoLE620 === true && (lates===true || dti===true)) creditQualifies = true;
+  else if (ficoLE620 === false) creditQualifies = false;
+  else if (ficoLE620===true && lates===false && dti===false) creditQualifies = false;
+  else creditQualifies = null;
+
+  if (hardshipQualifies){
+    if (missing.length) return {status:"info", reasons:["hardship type qualifies, but still need: "+missing.join(", ")], missing};
+    return {status:"pass", reasons:["qualifying hardship type for imminent default"]};
+  }
+  if (creditQualifies === true){
+    if (missing.length) return {status:"info", reasons:["credit profile qualifies, but still need: "+missing.join(", ")], missing};
+    return {status:"pass", reasons:["FICO ≤620 with delinquency/DTI trigger"]};
+  }
+  if (creditQualifies === false && s.hardshipType && !hardshipQualifies){
+    return {status:"fail", reasons:["does not meet the imminent-default credit test and the hardship type is not one the test accepts"]};
+  }
+  return {status:"info", reasons:["need more info to run the imminent-default test"+(missing.length? " ("+missing.join(", ")+")":"")], missing};
+}
+
+function evalReinstatement(s){
+  const c = {program:"Reinstatement (bring the loan current)"};
+  if (s.canReinstate === "yes"){ c.status="eligible"; c.reasons=["You indicated you can pay the full past-due amount, which is always the cleanest option and is considered first."]; return c; }
+  if (s.canReinstate === "no"){ c.status="ineligible"; c.reasons=["You indicated you cannot pay the full past-due amount now."]; return c; }
+  c.status="needs-info"; c.reasons=["Tell us whether you can pay the full past-due amount."]; return c;
+}
+
+function evalForbearance(s){
+  const c = {program:"Forbearance plan (temporary pause/reduction)"};
+  if (s.hardshipResolved === "resolved"){ c.status="ineligible"; c.reasons=["Forbearance is for an ongoing/unresolved hardship; this hardship is reported as resolved (a repayment plan or payment deferral fits better)."]; return c; }
+  if (s.hardshipDuration === "permanent"){ c.status="ineligible"; c.reasons=["The hardship is long-term/permanent — a forbearance only postpones payments and a modification is the appropriate path."]; return c; }
+  if (s.hardshipResolved === "ongoing" || s.hardshipDuration === "temporary"){ c.status="eligible"; c.reasons=["A temporary/ongoing hardship is what a forbearance plan is designed for — payments are paused or reduced for a set period."]; return c; }
+  c.status="needs-info"; c.reasons=["Need to know whether the hardship is temporary and still ongoing."]; return c;
+}
+
+function evalRepayment(s){
+  const c = {program:"Repayment plan (catch up over time)"};
+  const missing = [];
+  if (s.hardshipResolved==="") missing.push("whether your hardship is resolved");
+  if (s.canReinstate==="") missing.push("whether you can pay the full past-due amount");
+  if (s.canRepay==="") missing.push("whether you can afford a repayment plan");
+  if (missing.length){ c.status="needs-info"; c.reasons=["Need: "+missing.join(", ")]; return c; }
+
+  if (s.hardshipResolved==="ongoing"){ c.status="ineligible"; c.reasons=["A repayment plan assumes the hardship has resolved and income has recovered; it is reported as still ongoing."]; return c; }
+  if (s.canReinstate==="yes"){ c.status="ineligible"; c.reasons=["You can pay the past-due in full, which is simpler and comes first."]; return c; }
+  if (s.canRepay==="no"){ c.status="ineligible"; c.reasons=["You indicated you cannot afford the higher payments a repayment plan requires."]; return c; }
+  if (s.hardshipResolved==="resolved" && s.canRepay==="yes"){ c.status="eligible"; c.reasons=["Hardship resolved, can't reinstate in a lump sum, but can afford the regular payment plus a catch-up amount for a few months."]; return c; }
+  c.status="needs-info"; c.reasons=["Need clearer answers on hardship resolution and repayment affordability."]; return c;
+}
+
+function evalPaymentDeferral(s){
+  const c = {program:"Payment deferral (move missed payments to the end)"};
+  const reasons=[], missing=[];
+  let fail=false;
+
+  if (s.monthsSinceOrig==null) missing.push("loan origination date");
+  else if (s.monthsSinceOrig < 12){ fail=true; reasons.push("Loan is less than 12 months old (must be ≥12 months)."); }
+
+  const disaster = s.hardshipType==="disaster";
+  if (s.monthsBehind==null) missing.push("how many payments behind");
+  else if (s.monthsBehind < 2){
+    // VM-5: a derived months-behind of 1 could really be 2 (fees inflate the dollar figure) — don't hard-fail on an estimate.
+    if (s.estimatedMonthsBehind && s.monthsBehind===1) missing.push("exact number of missed payments (the estimate is right at the 2-month minimum)");
+    else { fail=true; reasons.push("Fewer than 2 months delinquent (deferral needs 2–6 months behind)."); }
+  }
+  else if (s.monthsBehind > 6){
+    if (disaster && s.monthsBehind <= 12){ missing.push("servicer review — a DISASTER payment deferral can cover up to 12 months of missed payments, which this tool doesn't compute"); }
+    else if (s.estimatedMonthsBehind && s.monthsBehind===7) missing.push("exact number of missed payments (the estimate is right at the 6-month cap)");
+    else { fail=true; reasons.push("More than 6 months delinquent (deferral caps at 6 months of past-due P&I"+(disaster?"; disaster deferrals can reach 12 months — ask your servicer":"")+")."); }
+  }
+
+  if (s.hardshipResolved==="ongoing"){ fail=true; reasons.push("Hardship must be resolved; it is reported as still ongoing."); }
+  else if (s.hardshipResolved===""||s.hardshipResolved==="unsure") missing.push("whether your hardship is resolved");
+
+  if (s.canResume==="no"){ fail=true; reasons.push("A payment deferral requires that you can resume your full monthly payment; you indicated you can't."); }
+  else if (s.canResume===""||s.canResume==="unsure") missing.push("whether you can resume full payments");
+
+  if (s.canReinstate==="yes"){ fail=true; reasons.push("A payment deferral is for people who can't pay the full past-due amount at once; you indicated you can, and bringing the loan current comes first."); }
+
+  if (s.monthsToMaturity==null) missing.push("remaining term");
+  else if (s.monthsToMaturity <= 36){ fail=true; reasons.push("Within 36 months of maturity (deferral generally excluded; a servicer exception is possible)."); }
+
+  if (s.priorDeferral==="yes"){
+    if (disaster) missing.push("servicer review — disaster deferrals are exempt from the one-per-12-months limit");
+    else { fail=true; reasons.push("A payment deferral was used in the last 12 months (only one per 12-month period)."); }
+  }
+  else if (s.priorDeferral===""||s.priorDeferral==="unsure") missing.push("prior deferral in last 12 months?");
+
+  if (s.modLast12==="yes"){ fail=true; reasons.push("A modification completed in the last 12 months blocks a new payment deferral."); }
+  else if (s.modLast12===""||s.modLast12==="unsure") missing.push("modification in last 12 months?");
+
+  if (s.failedTPP==="yes"){ fail=true; reasons.push("A failed trial-period plan in the last 12 months blocks payment deferral."); }
+  else if (s.failedTPP===""||s.failedTPP==="unsure") missing.push("failed trial plan in last 12 months?");
+
+  if (fail){ c.status="ineligible"; c.reasons=reasons; return c; }
+  if (missing.length){ c.status="needs-info"; c.reasons=["Need: "+missing.join(", ")]; return c; }
+
+  c.status="eligible";
+  c.reasons=["Meets the published payment-deferral criteria: hardship resolved, can resume payments, 2–6 months behind, and no disqualifying history."];
+  c.extra = {deferralNote:"The 2–6 months of missed P&I (plus eligible escrow advances) move to a non-interest-bearing balance due at payoff/sale/refinance. Escrow shortage is repaid separately, not deferred. Lifetime limit: no more than 12 months of payments can ever be deferred this way across all deferrals."};
+  return c;
+}
+
+function evalFlexMod(s, modRate){
+  const c = {program:"Flex Modification (permanently change the loan terms)"};
+  const reasons=[], missing=[]; let fail=false;
+
+  // Delinquency / imminent-default gate
+  const sixtyPlus = is60Plus(s);
+  let imminent = null;
+  if (sixtyPlus === true){
+    // qualifies on delinquency alone
+  } else if (sixtyPlus === false){
+    imminent = evalImminentDefault(s);
+    if (imminent.status==="fail"){ fail=true; reasons.push("Loan is current/under 60 days late and does not meet the imminent-default test: "+imminent.reasons.join("; ")+"."); }
+    else if (imminent.status==="info"){ missing.push("imminent-default inputs — "+imminent.reasons.join("; ")); }
+  } else {
+    missing.push("delinquency detail (need days/months past due)");
+  }
+
+  if (s.monthsSinceOrig==null) missing.push("loan origination date");
+  else if (s.monthsSinceOrig < 12){ fail=true; reasons.push("Loan is less than 12 months old (must be ≥12 months)."); }
+
+  const disaster = s.hardshipType==="disaster";
+  if (s.priorMods==="3plus"){
+    if (disaster) missing.push("servicer review — the prior-modification limit does NOT apply to disaster modifications");
+    else { fail=true; reasons.push("Already modified 3 or more times (Flex Mod is not available after 3 prior modifications)."); }
+  }
+  else if (s.priorMods===""||s.priorMods==="unsure"){ missing.push("how many times the loan was modified before"); }
+  else if (s.priorMods==="2"){ reasons.push("Note: 2 prior modifications on file — this would be the third and last allowed."); }
+
+  if (s.failedTPP==="yes"){ fail=true; reasons.push("A failed Flex Mod trial-period plan in the last 12 months blocks a new one."); }
+  else if (s.failedTPP===""||s.failedTPP==="unsure"){ missing.push("failed trial plan in last 12 months?"); }
+
+  // Foreclosure-sale timing. SCN-4: the 60/30-day rule is a SOLICITATION bar, not an
+  // eligibility bar — surface it as an urgent warning, don't flip the verdict.
+  const fSale = foreclosureWindow(s);
+  let urgent = null;
+  if (fSale.blocked){ urgent = fSale.msg; }
+  else if (fSale.note) reasons.push(fSale.note);
+
+  if (fail){ c.status="ineligible"; c.reasons=urgent?[urgent].concat(reasons):reasons; return c; }
+  if (missing.length){ c.status="needs-info"; c.reasons=(urgent?[urgent]:[]).concat(["Need: "+missing.join(" · ")]).concat(reasons.length?["Notes: "+reasons.join(" ")]:[]); return c; }
+
+  // Eligible on the gates — now try to produce qualifying terms. Values must be
+  // POSITIVE (js-1: zero/negative inputs would produce Infinity/NaN math).
+  const haveAll = s.rate!=null && s.rate>0 && s.upb>0 && s.remTerm>=1 && s.pi>0 && s.propValue>0;
+  if (!haveAll){
+    const miss = [];
+    if (s.rate==null || s.rate<=0) miss.push("current interest rate");
+    if (!(s.upb>0)) miss.push("UPB");
+    if (!(s.remTerm>=1)) miss.push("remaining term");
+    if (!(s.pi>0)) miss.push("monthly P&I");
+    if (!(s.propValue>0)) miss.push("property value");
+    c.status="needs-info";
+    c.reasons=(urgent?[urgent]:[]).concat(["Meets the eligibility gates. To estimate the modified payment, still need: "+miss.join(", ")+"."]).concat(reasons.length?["Notes: "+reasons.join(" ")]:[]);
+    return c;
+  }
+
+  // Arrears to capitalize: exact if given, else estimate from months behind.
+  let arrears = s.arrearsDollars;
+  if (arrears==null) arrears = 0;
+
+  const armNotFinal = (s.loanType==="arm"||s.loanType==="step") && s.atFinal==="no";
+  const w = flexModWaterfall({
+    preUpb:s.upb, preRate:s.rate, remainingTerm:s.remTerm,
+    arrears, existingNonIntBearing:s.existingNIB||0,
+    propertyValue:s.propValue, fmModRate:modRate,
+    loanIsArmNotAtFinal:armNotFinal, armLifetimeCap:s.armCap,
+    prePiOverride:s.pi
+  });
+
+  // Input-sanity detectors (VM-6 / VM-7 / SCN-11):
+  const monthlyInterest = s.upb*s.rate/1200;
+  const ioDetected = s.loanType==="io" || Math.abs(s.pi - monthlyInterest) < 5;   // payment is (nearly) pure interest
+  const pitiSuspect = !ioDetected && (s.escrow||0) > 0
+    && Math.abs(w.computedPrePi - (s.pi - s.escrow)) < 10
+    && Math.abs(w.computedPrePi - s.pi) > 10;                                     // entered payment looks like P&I+escrow
+
+  // P&I constraint by delinquency bucket (RULES §3):
+  //   current / <31 days -> new P&I must be STRICTLY LESS than pre-mod P&I
+  //   >= 31 days         -> new P&I must be LESS THAN OR EQUAL
+  const under31 = isUnder31(s);
+  let constraintOk, constraintNote;
+  if (under31 === true){ constraintOk = w.newPi < s.pi - 1e-6; constraintNote="Because the loan is current/under 31 days late, the new payment must be strictly lower than today's."; }
+  else if (under31 === false){ constraintOk = w.newPi <= s.pi + 1e-6; constraintNote="The new payment must be at or below today's payment."; }
+  else { constraintOk = w.newPi <= s.pi + 1e-6; constraintNote="Payment-constraint check used the ≤ rule; confirm the exact delinquency with the servicer."; }
+
+  const bandPct = valueBandPct(s.propValueSource);
+  if (!constraintOk){
+    // VM-2: before declaring a hard no, test whether a plausibly-lower servicer
+    // valuation flips the outcome (the 50% MTMLTV gates rate cuts + forbearance).
+    const sens = sensitivityBand(s, modRate, armNotFinal, arrears, bandPct);
+    const loW = flexModWaterfall({ preUpb:s.upb, preRate:s.rate, remainingTerm:s.remTerm, arrears,
+      existingNonIntBearing:s.existingNIB||0, propertyValue:s.propValue*(1-bandPct), fmModRate:modRate,
+      loanIsArmNotAtFinal:armNotFinal, armLifetimeCap:s.armCap, prePiOverride:s.pi });
+    const loPasses = (under31===true) ? loW.newPi < s.pi - 1e-6 : loW.newPi <= s.pi + 1e-6;
+    if (loPasses){
+      c.status="needs-info";
+      c.reasons=(urgent?[urgent]:[]).concat(["Whether this works depends on the servicer's property valuation: at your value the modification can't reach a qualifying payment, but at a value about "+Math.round(bandPct*100)+"% lower it can ("+fmtMoney2(loW.newPi)+"). The servicer's own valuation decides — worth applying."]);
+      c.extra={ waterfall:w };
+      return c;
+    }
+    c.status="ineligible";
+    c.reasons=(urgent?[urgent]:[]).concat(["The loan qualifies, but the modification would not produce a lower enough payment to be offered — the waterfall can't get the new P&I below the required level ("+constraintNote+")."]).concat(reasons.length?["Notes: "+reasons.join(" ")]:[]);
+    c.extra={ waterfall:w };
+    return c;
+  }
+
+  c.status="eligible";
+  const notes = [];
+  if (urgent) notes.push(urgent);
+  notes.push("Meets the Flex Modification eligibility criteria.");
+  if (sixtyPlus===true) notes.push("Qualifies on delinquency (60+ days).");
+  if (imminent && imminent.status==="pass") notes.push("Qualifies via imminent default: "+imminent.reasons.join("; ")+".");
+  if (reasons.length) notes.push(reasons.join(" "));
+  c.reasons=notes;
+  c.extra = {
+    waterfall:w,
+    sensitivity: sensitivityBand(s, modRate, armNotFinal, arrears, bandPct),
+    bandPct,
+    brp: brpNote(s),
+    estimatedArrears: s.estimatedArrears,
+    ioDetected, pitiSuspect,
+    foreclosureActive: s.foreclosure==="yes" && (s.foreclosureWho===""||s.foreclosureWho==="mortgage"||s.foreclosureWho==="unsure"),
+    reconMismatch: (!ioDetected && !pitiSuspect && Math.abs(w.computedPrePi - s.pi) > 10) ? {computed:w.computedPrePi, entered:s.pi} : null
+  };
+  return c;
+}
+
+// VM-1: sensitivity band width by where the property value came from.
+function valueBandPct(source){
+  return source==="appraisal" ? 0.05 : source==="tax" ? 0.20 : source==="guess" ? 0.20 : 0.10; // avm default
+}
+
+// Foreclosure solicitation-window check: no new solicitation if a sale is within
+// 60 days (judicial) or 30 days (non-judicial). SCN-5: only a MORTGAGE foreclosure
+// triggers this — HOA/tax sales are a separate emergency handled by routing text.
+function foreclosureWindow(s){
+  if (s.foreclosure==="unsure") return {blocked:false, note:"Confirm whether a foreclosure sale is scheduled — it affects timing."};
+  if (s.foreclosure!=="yes") return {blocked:false};
+  if (s.foreclosureWho==="hoa" || s.foreclosureWho==="tax")
+    return {blocked:false, note:"⚠ The scheduled sale is by the "+(s.foreclosureWho==="hoa"?"HOA/condo association":"property-tax authority")+" — that's separate from your mortgage, and mortgage assistance won't stop it. Contact that creditor (and a lawyer) immediately."};
+  const d = parseDate(s.foreclosureDate);
+  if (!d) return {blocked:false, note:"A foreclosure sale is scheduled — get the exact date; it may limit the window to act."};
+  const days = daysBetween(todayDate(), d);
+  const limit = s.foreclosureState==="judicial" ? 60 : 30;
+  if (days < 0) return {blocked:true, msg:"The foreclosure sale date has passed — this is urgent; contact the servicer/attorney immediately."};
+  if (days <= limit){
+    return {blocked:true, msg:"A foreclosure sale is scheduled in "+days+" day(s); inside the "+limit+"-day "+(s.foreclosureState||"")+" window the servicer generally will not solicit a new modification. Act immediately and ask the servicer directly."};
+  }
+  return {blocked:false, note:"Foreclosure sale in "+days+" days — outside the no-solicitation window, but time-sensitive."};
+}
+
+function brpNote(s){
+  // Borrower Response Package requirement based on delinquency (RULES §3 documentation).
+  if (s.daysPastDue!=null && s.daysPastDue>=90) return "90+ days delinquent: no full application package is required for solicitation, though the servicer may still request documents.";
+  return "Current or under 90 days delinquent: a complete application (Form 710 — hardship, income, expenses, assets) is required.";
+}
+
+// Runs the waterfall at property value ±band and reports whether the outcome is
+// sensitive to the servicer's valuation (the 50% MTMLTV threshold). VM-1: the band
+// width comes from where the value came from (appraisal ±5%, AVM ±10%, tax/guess ±20%).
+function sensitivityBand(s, modRate, armNotFinal, arrears, bandPct){
+  const band = bandPct || 0.10;
+  const run = pv => flexModWaterfall({
+    preUpb:s.upb, preRate:s.rate, remainingTerm:s.remTerm, arrears,
+    existingNonIntBearing:s.existingNIB||0, propertyValue:pv, fmModRate:modRate,
+    loanIsArmNotAtFinal:armNotFinal, armLifetimeCap:s.armCap, prePiOverride:s.pi
+  });
+  const lo = run(s.propValue*(1-band)), mid = run(s.propValue), hi = run(s.propValue*(1+band));
+  const pis = [lo.newPi, mid.newPi, hi.newPi];
+  const spread = Math.max(...pis) - Math.min(...pis);
+  const forbFlip = (lo.forbearance>0) !== (hi.forbearance>0);
+  const crosses50 = (lo.mtmltv>=0.5) !== (hi.mtmltv>=0.5) || (lo.mtmltv>0.5)!==(hi.mtmltv>0.5);
+  return {loPi:lo.newPi, hiPi:hi.newPi, spread, band, sensitive: spread>25 || forbFlip || crosses50, forbFlip, crosses50};
+}
+
+/* ============================ RENDER ============================ */
+function badge(status){
+  const map = {eligible:["eligible","Likely eligible"], ineligible:["ineligible","Not eligible"], "needs-info":["info","Needs info"]};
+  const [cls,label] = map[status] || ["info",status];
+  return `<span class="badge ${cls}">${label}</span>`;
+}
+function cardClass(status){ return status==="eligible"?"eligible":status==="ineligible"?"ineligible":"info"; }
+
+function renderCard(c){
+  let html = `<div class="result ${cardClass(c.status)}">
+    <div class="rhead"><h3>${c.program}</h3>${badge(c.status)}</div>`;
+  if (c.reasons && c.reasons.length){
+    if (c.reasons.length===1) html += `<p class="why">${c.reasons[0]}</p>`;
+    else html += `<ul>${c.reasons.map(r=>`<li>${r}</li>`).join("")}</ul>`;
+  }
+  if (c.extra && c.extra.deferralNote) html += `<p class="why muted small">${c.extra.deferralNote}</p>`;
+  if (c.extra && c.extra.waterfall && c.status==="eligible") html += renderTerms(c);
+  html += `</div>`;
+  return html;
+}
+
+function renderTerms(c){
+  const w = c.extra.waterfall, s = window.__state;
+  const curTotal = (s.pi||0) + (s.escrow||0);
+  const newTotal = w.newPi + (s.escrow||0);
+  const conf = outcomeConfidence({
+    estimatedInputs: (c.extra.estimatedArrears?1:0) + (s.estimatedMonthsBehind?1:0),
+    valuationEstimate: s.propValueSource !== "appraisal",     // a recent appraisal is treated as solid
+    sensitiveFlip: c.extra.sensitivity && c.extra.sensitivity.sensitive,
+    inputMismatch: !!(c.extra.reconMismatch || c.extra.pitiSuspect),
+    feesUnknown: c.extra.estimatedArrears && c.extra.foreclosureActive
+  });
+  let h = confidenceLineHTML(conf);
+  h += `<div class="terms"><table>`;
+  h += row("Estimated new interest rate", fmtRate(w.newRate));
+  h += row("Estimated new term", w.newTerm+" months ("+(w.newTerm/12).toFixed(1)+" yrs)");
+  if (w.forbearance>0.5) h += row("Principal set aside (forbearance, no interest, due at payoff)", fmtMoney(w.forbearance));
+  h += row("Amount capitalized into the balance", fmtMoney(w.capitalizedUpb - (s.upb||0)));
+  h += `<tr class="big"><td>Estimated new P&I payment</td><td>${fmtMoney2(w.newPi)}</td></tr>`;
+  h += `<tr><td class="muted small">Today's P&I payment</td><td class="muted small" style="font-weight:400">${fmtMoney2(s.pi)}</td></tr>`;
+  h += `<tr><td>Estimated reduction</td><td><span class="pill">${fmtPct(w.reductionPct)} lower</span></td></tr>`;
+  if (s.escrow){
+    h += `<tr><td class="muted small">Est. total payment incl. escrow (today → new)</td><td class="muted small" style="font-weight:400">${fmtMoney2(curTotal)} → ${fmtMoney2(newTotal)}</td></tr>`;
+  }
+  h += `</table>`;
+
+  const sens = c.extra.sensitivity;
+  const caveats = [];
+  caveats.push(`This is an <strong>estimate</strong> of the modified payment, not an offer. The servicer computes the real number using their own balance, advances, and property valuation.`);
+  if (!w.hitTarget) caveats.push(`The waterfall could not reach the full 20% target — these are the best terms the steps produce, and they still satisfy the payment rule.`);
+  if (c.extra.estimatedArrears) caveats.push(`Past-due amount was estimated from the number of missed payments; entering the exact figure will sharpen the estimate.`+((s.escrow==null)?` No escrow was entered, so the estimate may be low if your payment includes taxes/insurance.`:``));
+  if (c.extra.foreclosureActive && c.extra.estimatedArrears) caveats.push(`<strong>Foreclosure legal costs are not in this estimate.</strong> Once an attorney is involved, roughly $2,000–$5,000+ of fees and advances are also added to the balance — expect the real payment to be somewhat higher than shown.`);
+  if (c.extra.pitiSuspect) caveats.push(`The payment you entered appears to <strong>include escrow</strong> — the P&I-only portion computes to about ${fmtMoney2(w.computedPrePi)}. Enter just the principal-and-interest amount for an accurate reduction target.`);
+  else if (c.extra.ioDetected) caveats.push(`Your current payment appears to be <strong>interest-only</strong>. A Flex Modification always produces a fully amortizing fixed-rate loan, so the before/after comparison is measured against your interest-only payment — the servicer applies the same rule.`);
+  else if (c.extra.reconMismatch) caveats.push(`Heads-up: the entered P&I (${fmtMoney2(c.extra.reconMismatch.entered)}) doesn't match a payment computed from the rate/term/balance (${fmtMoney2(c.extra.reconMismatch.computed)}). Double-check the loan figures — the target reduction is measured from the payment you entered.`);
+  if (sens && sens.sensitive) caveats.push(`<strong>Sensitive to the property value.</strong> At ±${Math.round((sens.band||0.10)*100)}% of the value you entered, the estimated new payment ranges roughly ${fmtMoney2(Math.min(sens.loPi,sens.hiPi))}–${fmtMoney2(Math.max(sens.loPi,sens.hiPi))}. The servicer's own valuation (and the 50% loan-to-value line) can shift the outcome.`);
+  caveats.push(`If your past-due figure includes an escrow shortage or late fees, the servicer won't roll those into the new balance (a shortage is repaid separately, over up to 60 months) — the real capitalized amount can be a bit lower than shown.`);
+  if (s.priorMods==="1"||s.priorMods==="2") caveats.push(`One more history check the servicer runs: a prior Flex Modification that went 60+ days delinquent within its first year (without catching up) blocks a new one.`);
+  caveats.push(c.extra.brp);
+  h += `<div class="callout" style="margin-top:12px"><strong>About this estimate</strong><ul style="margin:6px 0 0;padding-left:18px">${caveats.map(x=>`<li class="small">${x}</li>`).join("")}</ul></div>`;
+  h += `</div>`;
+  return h;
+}
+function row(label, value){ return `<tr><td>${label}</td><td>${value}</td></tr>`; }
+
+/* ============================ ORCHESTRATION ============================ */
+function currentModRate(){ const r = num("modRate"); return r==null?DEFAULT_FM_MOD_RATE:r; }
+
+function recommendedPath(s, cards){
+  // Pick a headline recommendation from the hierarchy (RULES §1).
+  if (s.investor==="gse"){
+    if (s.hardshipDuration==="permanent"){
+      const flex = cards.find(c=>c.program.startsWith("Flex"));
+      if (flex && flex.status==="eligible") return "For a long-term hardship, a loan modification (Flex Modification) is the main way to keep your home — and you appear to meet its criteria.";
+      if (flex && flex.status==="needs-info") return "For a long-term hardship, a loan modification (Flex Modification) is the path to pursue — a few more details are needed to estimate the payment.";
+      return "For a long-term hardship, a loan modification (Flex Modification) is the usual path, but the criteria aren't met with what you entered. If a modification can't work, a short sale or deed-in-lieu may be options — ask your servicer.";
+    }
+    if (s.hardshipDuration==="temporary"){
+      if (s.hardshipResolved==="ongoing") return "For a temporary hardship that's still going on, a forbearance plan (a short pause or reduction in payments) is usually the first step.";
+      if (s.hardshipResolved==="resolved") return "For a temporary hardship that has passed, look at bringing the loan current, a repayment plan, or a payment deferral.";
+    }
+  }
+  return null;
+}
+
+function renderResults(cards, s, opts){
+  opts = opts||{};
+  let html = "";
+  const modDays = modRateAgeDays();
+  if (modDays!=null && modDays>RATE_STALE_DAYS){
+    html += `<div class="banner changed">The modification interest rate in Settings is ${modDays} days old and changes roughly monthly. Confirm the current value from the exhibit PDF before relying on the payment estimate.</div>`;
+  }
+  if (opts.changedNote) html += `<div class="banner changed">${opts.changedNote}</div>`;
+  // SCN-1: disaster cases follow expanded rules this tool doesn't compute.
+  if (s.hardshipType==="disaster") html += `<div class="banner changed"><strong>Disaster hardship:</strong> expanded rules apply that this tool doesn't compute — a disaster payment deferral can cover up to 12 months of missed payments, the prior-modification limit is waived, and paperwork is reduced. Treat the cards below as the <em>baseline</em>; your servicer's disaster options can be better.</div>`;
+  // SCN-8: successor-in-interest routing.
+  if (s.onNote==="heir"||s.onNote==="ex") html += `<div class="banner rec"><strong>First step for you:</strong> you're not a borrower on this loan, so ask the servicer to confirm you as a <strong>"successor in interest"</strong> (send the death certificate, deed, or divorce decree). Federal rules require them to work with you once confirmed — then every option below opens up.</div>`;
+  const rec = recommendedPath(s, cards);
+  if (rec) html += `<div class="banner rec"><strong>Suggested path:</strong> ${rec}</div>`;
+
+  html += cards.map(renderCard).join("");
+
+  // near-miss note
+  if (cards.some(c=>c.program.startsWith("Flex") && c.status==="ineligible")){
+    html += `<p class="small muted" style="margin-top:10px">Even when a case just misses a rule, a servicer can sometimes make an exception. It's worth asking your servicer directly.</p>`;
+  }
+
+  html += renderConfidence(s);
+  html += `<div class="btnrow"><button class="ghost" type="button" onclick="copySummary()">Copy summary</button><span id="copyMsg" class="small muted" role="status" aria-live="polite"></span></div>`;
+  html += disclaimerHTML();
+  return html;
+}
+
+function renderConfidence(s){
+  const items=[];
+  if (s.estimatedArrears) items.push("your past-due amount was estimated from missed payments — the exact figure sharpens the result");
+  if (s.estimatedMonthsBehind) items.push("your months-behind was worked out from the past-due dollar amount you entered");
+  if (s.propValue!=null) items.push("your home value here is an estimate — your servicer uses their own valuation, which can change the result");
+  items.push("the number of past modifications, trial plans, and deferrals is based on what you entered — your servicer's records are what count");
+  items.push("your exact past-due balance and any amounts your servicer has advanced are held by the servicer");
+  items.push("your servicer confirms your income and that the hardship is resolved using documents and a short trial-payment period — so an answer here that doesn't match your real situation can change the outcome");
+  return `<div class="callout" style="margin-top:14px"><strong>What could change this</strong><ul style="margin:6px 0 0;padding-left:18px">${items.map(x=>`<li class="small">${x}</li>`).join("")}</ul></div>`;
+}
+
+function disclaimerHTML(program){
+  const guide = program==="fha" ? "published FHA guidelines"
+              : program==="va" ? "published VA guidelines"
+              : "published Fannie Mae and Freddie Mac guidelines";
+  return `<div class="disclaimer"><strong>For educational purposes only.</strong> This is a free estimate based on ${guide} — not an approval, offer, or guarantee, and not legal, financial, or tax advice. Only your mortgage servicer and the company that owns or insures your loan can decide whether you qualify and what your actual terms would be, and they are not required to change your loan. This tool is not associated with or approved by the government, your lender, or your loan servicer. Keep making your mortgage payments and stay in contact with your servicer. <a href="#resources">Free help is available →</a></div>`;
+}
+
+/* Investor selection behavior */
+function hideAllFlows(){
+  ["step2","step3","resultsCard","fhaModule","vaModule"].forEach(id=>$(id).classList.add("hidden"));
+  $("investorNote").innerHTML = "";
+}
+function onInvestor(v){
+  hideAllFlows();
+  const note = $("investorNote");
+  if (v==="gse"){
+    ["step2","step3","resultsCard"].forEach(id=>$(id).classList.remove("hidden"));
+    syncImminentVisibility();
+    recomputeLive();
+  } else if (v==="notsure"){
+    note.innerHTML = `<div class="callout"><strong>Two ways to go:</strong>
+      <p class="small" style="margin:8px 0 0"><strong>Fastest:</strong> <button class="ghost" type="button" style="margin:4px 0" onclick="checkAllPrograms()">Check all three programs at once</button></p>
+      <p class="small" style="margin:8px 0 0"><strong>Most precise:</strong> look up who owns your loan (~2 minutes) — <a href="https://yourhome.fanniemae.com/calculators-tools/loan-lookup" target="_blank" rel="noopener">Fannie Mae lookup ↗</a> · <a href="https://myhome.freddiemac.com/resources/loanlookup" target="_blank" rel="noopener">Freddie Mac lookup ↗</a>. If neither owns it, check your statement for FHA or VA.</p></div>`;
+  } else if (v==="fha"){
+    $("fhaModule").classList.remove("hidden");
+    syncFhaImminent();
+    recomputeLive();
+  } else if (v==="va"){
+    $("vaModule").classList.remove("hidden");
+    recomputeLive();
+  } else {
+    note.innerHTML = otherProgramCard(v);
+  }
+}
+
+// "Other / portfolio" is an informational card only (USDA is modelable but out of v1 scope;
+// true portfolio loans have no published ruleset). Facts per RULES.md §12.
+function otherProgramCard(v){
+  return `<div class="callout"><strong>This loan isn't estimated here — but you still have options.</strong>
+    <p class="small" style="margin:8px 0 0"><strong>USDA (Rural Development) loans</strong> offer real help: repayment plans, forbearance, a loan modification (lower rate, longer term, aimed at an affordable payment), a zero-interest Mortgage Recovery Advance that's repaid only when you sell or pay off the loan, and a no-paperwork "streamline" modification. This tool doesn't calculate USDA yet — ask your servicer about these options.</p>
+    <p class="small" style="margin:8px 0 0"><strong>Bank-held ("portfolio") loans</strong> don't follow one published rulebook — each lender sets its own terms, so there's nothing standard to calculate here. One protection still applies: in most cases your servicer can't start foreclosure until you're more than 120 days behind.</p>
+    <p class="small muted" style="margin:8px 0 0"><strong>What to ask your servicer:</strong> Who owns my loan? What assistance programs do you offer, and what are the eligibility rules (target payment, rate, term)? Get every offer in writing — and you should never pay a fee before you have a signed offer from your servicer in hand.</p></div>`;
+}
+
+// Show the imminent-default block only when the borrower is less than 60 days late.
+// js-2: slim reader — this runs on every keystroke, so don't call readState() (~30 DOM reads).
+function syncImminentVisibility(){
+  const mb = num("monthsBehind"), ad = num("arrearsDollars");
+  const fullMonthly = (num("pi")||0) + (num("escrow")||0);
+  const months = mb != null ? mb : (ad != null && fullMonthly > 0 ? Math.max(1, Math.round(ad/fullMonthly)) : null);
+  const show = months != null && months*30 < 60;   // known to be < 60 days past due
+  $("imminentBlock").classList.toggle("hidden", !show);
+}
+
+function runFull(){
+  if (segState.investor==="all") mirrorShared();
+  const s = readState(); window.__state = s;
+  const cards = buildCards(s, currentModRate());
+  window.__lastCards = cards;   // js-6: copySummary copies exactly what was rendered
+  $("resultsCard").classList.remove("hidden");
+  $("results").innerHTML = renderResults(cards, s, {});
+}
+
+// Build every program card in hierarchy order (RULES §1).
+function buildCards(s, modRate){
+  const cards = [];
+  cards.push(evalReinstatement(s));
+  cards.push(evalForbearance(s));
+  cards.push(evalRepayment(s));
+  cards.push(evalPaymentDeferral(s));
+  cards.push(evalFlexMod(s, modRate));
+  return cards;
+}
+
+/* Copy-to-clipboard summary */
+function copySummary(){
+  const s = window.__state; if(!s) return;
+  // js-6: copy exactly what's on screen (fall back to a rebuild only if needed).
+  const cards = window.__lastCards || buildCards(s, currentModRate());
+  const lines = [];
+  lines.push("LOSS MITIGATION GUIDE — SUMMARY");
+  lines.push("(Informational estimate only — not an approval. Servicer decides.)");
+  lines.push("Loan owner: " + ({gse:"Fannie Mae or Freddie Mac (conventional/GSE — evaluated together)"}[s.investor]||s.investor));
+  lines.push("Loan age: " + (s.monthsSinceOrig==null?"?":(s.monthsSinceOrig+" months"+(s.origDate?(" (orig. "+s.origDate+")"):""))));
+  lines.push("Delinquency: " + ((s.monthsBehind??"?")+" payment(s) behind"+(s.arrearsDollars?(" / ~"+fmtMoney(s.arrearsDollars)):"")));
+  lines.push("Hardship: " + (s.hardshipDuration||"?") + "; resolved: " + ({resolved:"yes (income recovered)",ongoing:"no (still reduced)",unsure:"answered yes, not yet verified"}[s.hardshipResolved]||"?"));
+  lines.push("");
+  cards.forEach(c=>{
+    const label = {eligible:"LIKELY ELIGIBLE","ineligible":"NOT ELIGIBLE","needs-info":"NEEDS INFO"}[c.status];
+    lines.push("• "+c.program+" — "+label);
+    (c.reasons||[]).forEach(r=>lines.push("    - "+r.replace(/<[^>]+>/g,"")));
+    if (c.extra && c.extra.waterfall && c.status==="eligible"){
+      const w=c.extra.waterfall;
+      lines.push("    Estimated terms: rate "+fmtRate(w.newRate)+", term "+w.newTerm+" mo"+(w.forbearance>0.5?(", forbearance "+fmtMoney(w.forbearance)):""));
+      lines.push("    Estimated new P&I: "+fmtMoney2(w.newPi)+" (was "+fmtMoney2(s.pi)+", "+fmtPct(w.reductionPct)+" lower)");
+    }
+  });
+  lines.push("");
+  lines.push("Generated "+new Date().toLocaleDateString()+". Estimate based on published Fannie Mae/Freddie Mac guidelines; final decision belongs to the servicer.");
+  const text = lines.join("\n");
+
+  const done = ()=>{ $("copyMsg").textContent="Copied."; setTimeout(()=>$("copyMsg").textContent="",2500); };
+  if (navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(text).then(done, ()=>fallbackCopy(text,done));
+  } else fallbackCopy(text, done);
+}
+function fallbackCopy(text, done){
+  const ta=document.createElement("textarea"); ta.value=text; document.body.appendChild(ta); ta.select();
+  try{ document.execCommand("copy"); done(); }catch(e){ $("copyMsg").textContent="Copy failed — select the text manually."; }
+  document.body.removeChild(ta);
+}
+
+/* Mod-rate staleness */
+function modRateAgeDays(){ const d=parseDate(val("modRateDate")); if(!d) return null; return daysBetween(d, todayDate()); }
+function refreshRateEcho(){
+  $("rateEcho").textContent = (num("modRate")??DEFAULT_FM_MOD_RATE).toFixed(3)+"%";
+  $("dateEcho").textContent = val("modRateDate")||"—";
+  const days = modRateAgeDays();
+  const box = $("rateStale");
+  if (days!=null && days>RATE_STALE_DAYS){
+    box.classList.remove("hidden");
+    box.textContent = "This rate is "+days+" days old and updates roughly monthly — check the exhibit PDF above for the current value.";
+  } else box.classList.add("hidden");
+}
+
+/* ============================ WIRE-UP ============================ */
+/* ==================================================================== *
+ *  FHA MODULE  (Handbook 4000.1 §III.A.2 + Appendix 4.0; eff 10/01/2025)
+ * ==================================================================== */
+function round125(x){ return Math.round(x/0.125)*0.125; }
+function fhaMarketRate(pmms30, termMonths){ return round125(pmms30) + (termMonths<=360 ? 0.25 : 0.50); }
+function principalForPayment(target, ratePct, n){ const r=ratePct/12/100; if(r===0) return target*n; return target*(Math.pow(1+r,n)-1)/(r*Math.pow(1+r,n)); }
+function fhaPCavailable(upbAtDefault, priorPCandPS){ return Math.max(0, 0.30*upbAtDefault - (priorPCandPS||0)); }
+
+// Appendix 4.0 Parts D→E→F — payment-reduction branch, target = 25% P&I cut.
+function fhaBranchB(currentPI, upb, arrearsStep3, pmms30, pcAvailable){
+  const target = currentPI*0.75, floor = currentPI*0.85;
+  const mr30 = fhaMarketRate(pmms30,360), mr40 = fhaMarketRate(pmms30,480);
+  const total = upb + arrearsStep3;
+  let pi = pmt(total, mr30, 360);
+  if (pi <= target) return {option:"30-year Standalone Loan Modification", rate:mr30, term:360, newPI:pi, pc:0, ibUPB:total};
+  pi = pmt(total, mr40, 480);
+  if (pi <= target) return {option:"40-year Standalone Loan Modification", rate:mr40, term:480, newPI:pi, pc:0, ibUPB:total};
+  let ib = principalForPayment(target, mr30, 360), pcReq = total - ib;
+  if (pcReq <= pcAvailable) return {option:"30-year Combination Modification + Partial Claim", rate:mr30, term:360, newPI:pmt(ib,mr30,360), pc:pcReq, ibUPB:ib};
+  ib = principalForPayment(target, mr40, 480); pcReq = total - ib;
+  if (pcReq <= pcAvailable) return {option:"40-year Combination Modification + Partial Claim", rate:mr40, term:480, newPI:pmt(ib,mr40,480), pc:pcReq, ibUPB:ib};
+  const maxMod = total - pcAvailable; pi = pmt(maxMod, mr40, 480);
+  if (pi <= floor) return {option:"40-year Combination Modification + Partial Claim (partial 15–25% reduction)", rate:mr40, term:480, newPI:pi, pc:pcAvailable, ibUPB:maxMod, partial:true};
+  return {fallback:true};
+}
+function fhaPaymentSupplement(currentPI, principalPortion, pcAvailable, arrearsStep2){
+  const pcForMoPR = pcAvailable - arrearsStep2;
+  if (pcForMoPR <= 0) return {eligible:false, reason:"no partial-claim funds remain after bringing the loan current"};
+  const maxMoPR = Math.min(0.25*currentPI, Math.max(principalPortion,0));
+  let moPR = (pcForMoPR >= maxMoPR*36) ? maxMoPR : pcForMoPR/36;
+  if (moPR < Math.max(0.05*currentPI, 20)) return {eligible:false, reason:"the monthly reduction it can fund is below FHA's 5%/$20 minimum"};
+  return {eligible:true, moPR, reducedPayment:currentPI-moPR};
+}
+
+function readFHA(){
+  const s={};
+  s.hecm=val("fhaHecm");
+  s.origDate=isoFromMY("fhaOrigMonth","fhaOrigYear"); s.monthsSinceOrig=monthsSince(s.origDate);
+  s.monthsBehind=num("fhaMonthsBehind"); s.arrearsExact=num("fhaArrears"); s.rate=num("fhaRate"); s.upb=num("fhaUpb");
+  s.pi=num("fhaPi"); s.escrow=num("fhaEscrow"); s.priorPC=num("fhaPriorPC")||0; s.pmms=num("fhaPmms");
+  s.hardship=val("fhaHardship"); s.branch=val("fhaBranch"); s.opt24=val("fha24mo");
+  s.bars=val("fhaBars"); s.bk=val("fhaBk"); s.onNote=val("fhaOnNote"); s.immDefault=val("fhaImmDefault");
+  return s;
+}
+
+function evalFHA(s){
+  // SCN-3: reverse mortgages (HECM) follow an entirely different rulebook — route out.
+  if (s.hecm==="yes") return {status:"needs-info", reasons:["This tool covers regular (forward) mortgages only. For a reverse-mortgage default — usually unpaid taxes or insurance — ask your servicer about a repayment plan or an \"at-risk extension,\" and call a free HUD-approved counselor at 888-995-4673."]};
+
+  const missing=[]; const reasons=[];
+  const disaster = s.hardship==="disaster";
+  // --- eligibility gates ---
+  // SCN-9: FHA's seasoning counts payments MADE, not loan age — subtract the missed ones.
+  const paymentsMade = (s.monthsSinceOrig!=null && s.monthsBehind!=null) ? Math.max(0, s.monthsSinceOrig - s.monthsBehind) : null;
+  if (s.monthsSinceOrig==null) missing.push("loan origination date");
+  else if (paymentsMade!=null && paymentsMade < 4){
+    if (disaster) missing.push("servicer review — disaster options waive the 4-payment minimum");
+    else return {status:"ineligible", reasons:["Fewer than 4 payments have been made — FHA requires at least 4 (about "+paymentsMade+" made on this loan so far)."]};
+  }
+
+  let viaImminent=false;
+  if (s.monthsBehind==null) missing.push("how many payments behind");
+  else if (s.monthsBehind < 3){
+    if (s.immDefault==="yes") viaImminent=true;
+    else if (s.immDefault==="no") return {status:"ineligible", reasons:["Less than 3 full payments past due and not in imminent default — FHA's permanent options need 3+ months past due (61+ days) or a qualifying imminent-default situation."]};
+    else missing.push("imminent-default question (you're under 3 months behind)");
+  }
+
+  if (s.opt24==="yes"){
+    if (disaster) missing.push("servicer review — the one-option-per-24-months limit does NOT apply to disaster cases");
+    else return {status:"ineligible", reasons:["A permanent FHA home-retention option was used in the last 24 months — only one is allowed per 24 months (disaster excepted)."]};
+  }
+  else if (s.opt24===""||s.opt24==="unsure") missing.push("prior FHA option in last 24 months");
+
+  if (s.bars==="yes") return {status:"ineligible", reasons:["A participation bar applies (another FHA-insured property, an FHA claim paid in the last 3 years, being barred from federal programs, or delinquent federal non-tax debt)."]};
+  else if (s.bars===""||s.bars==="unsure") missing.push("participation-eligibility question");
+
+  if (!s.hardship) missing.push("hardship");
+  if (!s.branch) missing.push("whether you can resume the payment or need it lowered");
+
+  if (missing.length) return {status:"needs-info", reasons:["Need: "+missing.join(" · ")]};
+
+  // --- eligibility met; now the estimate (values must be POSITIVE — js-1) ---
+  const needNums=[]; if(!(s.upb>0))needNums.push("UPB"); if(!(s.pi>0))needNums.push("monthly P&I"); if(!(s.rate>0))needNums.push("interest rate"); if(!(s.pmms>0))needNums.push("PMMS rate");
+  if (needNums.length) return {status:"needs-info", reasons:["Appears to meet the FHA eligibility gates"+(viaImminent?" (via imminent default)":"")+". To estimate the option, still need: "+needNums.join(", ")+"."]};
+
+  const full=(s.pi)+(s.escrow||0);
+  const monthlyInterest=s.upb*s.rate/1200;
+  // VM-11: a P&I that doesn't cover one month's interest means a mis-entered payment or balance.
+  if (s.pi <= monthlyInterest) return {status:"needs-info", reasons:["The payment entered doesn't cover one month's interest at this rate and balance — double-check that the payment is P&I only and the balance is the principal balance (not a payoff quote)."]};
+  const principalPortion=Math.max(0, s.pi-monthlyInterest);
+  const usedExact=s.arrearsExact!=null;
+  // Step 2 total (Partial Claim / Payment Supplement) INCLUDES past-due principal.
+  const arrearsStep2 = usedExact ? s.arrearsExact : (s.monthsBehind||0)*full;
+  // Step 3 total (Modifications / Combination) EXCLUDES past-due principal (whole UPB re-amortized).
+  const arrearsStep3 = Math.max(0, arrearsStep2 - (s.monthsBehind||0)*principalPortion);
+  const pcAvail=fhaPCavailable(s.upb, s.priorPC);           // js-5: hoisted; reused below
+  const nearCap = arrearsStep2 > 0.9*pcAvail;               // within 10% of the 30% cap
+  const mr30=fhaMarketRate(s.pmms,360);
+  let out={status:"eligible", viaImminent, arrearsEst:!usedExact, nearCap, pcAvail, disaster, bk:s.bk, onNote:s.onNote, priorPC:s.priorPC};
+
+  if (s.branch==="resume"){
+    const mod30=pmt(s.upb+arrearsStep3, mr30, 360);
+    if (mod30 <= s.pi-1){ out.option="Standalone Loan Modification"; out.newPI=mod30; out.rate=mr30; out.term=360; out.pc=0; out.reduction=1-mod30/s.pi; return finFHA(out,s); }
+    if (arrearsStep2 <= pcAvail){ out.option="Standalone Partial Claim"; out.newPI=s.pi; out.pc=arrearsStep2; out.paymentNeutral=true; return finFHA(out,s); }
+    // else fall through to reduction waterfall
+  }
+  const b=fhaBranchB(s.pi, s.upb, arrearsStep3, s.pmms, pcAvail);
+  if (b.fallback){
+    const ps=fhaPaymentSupplement(s.pi, principalPortion, pcAvail, arrearsStep2);
+    if (ps.eligible){ out.option="Payment Supplement"; out.moPR=ps.moPR; out.newPI=ps.reducedPayment; out.paymentSupplement=true; return finFHA(out,s); }
+    return {status:"ineligible", reasons:["You appear to meet the criteria, but with the numbers entered no FHA option reaches a low enough payment ("+ps.reason+"). Your servicer's exact figures could still change this."]};
+  }
+  Object.assign(out, {option:b.option, newPI:b.newPI, rate:b.rate, term:b.term, pc:b.pc, ibUPB:b.ibUPB, reduction:1-b.newPI/s.pi, partial:b.partial});
+  return finFHA(out,s);
+}
+function finFHA(out,s){ out._s=s; return out; }
+
+function renderFHA(r, s){
+  const heading="FHA — "+(r.option || "eligibility");
+  if (r.status!=="eligible"){
+    return programResult({status:r.status, heading:"FHA loss mitigation", reasons:r.reasons}) + disclaimerHTML("fha");
+  }
+  const rows=[];
+  if (r.paymentNeutral){
+    rows.push(["Recommended option", r.option]);
+    rows.push(["Partial claim (zero-interest, repaid at payoff/sale)", fmtMoney(r.pc)]);
+    rows.push(["Monthly payment", "unchanged — the past-due amount is set aside, not re-amortized"]);
+  } else if (r.paymentSupplement){
+    rows.push(["Recommended option", r.option]);
+    rows.push(["Monthly principal reduction (36 months)", fmtMoney2(r.moPR)]);
+    rows.push(["Estimated reduced payment (P&I, for 36 mo)", fmtMoney2(r.newPI)]);
+    rows.push(["After 36 months", "payment returns to the full amount (a step, not a taper)"]);
+  } else {
+    rows.push(["Recommended option", r.option]);
+    if (r.rate!=null) rows.push(["Estimated new rate", fmtRate(r.rate)+" (FHA Market Rate ceiling)"]);
+    if (r.term!=null) rows.push(["Estimated new term", r.term+" months ("+(r.term/12).toFixed(0)+" yrs)"]);
+    if (r.pc>0.5) rows.push(["Partial claim / deferral (zero-interest)", fmtMoney(r.pc)]);
+    rows.push(["Estimated new P&I", fmtMoney2(r.newPI)]);
+    rows.push(["Today's P&I", fmtMoney2(s.pi)]);
+    rows.push(["Estimated reduction", "<span class='pill'>"+fmtPct(r.reduction)+" lower</span>"]);
+  }
+  const cav=[];
+  cav.push("This is an <strong>estimate</strong>, not an offer. Your servicer and HUD use their own exact figures and make the final decision.");
+  cav.push("The interest rate used here can change week to week, so your actual rate may differ slightly.");
+  if (r.arrearsEst) cav.push("Your past-due amount was estimated from the number of missed payments — entering the exact amount makes the estimate sharper.");
+  if (r.nearCap) cav.push("Your past-due amount is close to a program limit, so your servicer's exact figures could change the result.");
+  if (r.priorPC>0) cav.push("FHA's 30% lifetime cap was locked in on your balance when you <strong>first</strong> defaulted (held in HUD's records), so the remaining partial-claim room here is approximate.");
+  if (r.paymentSupplement && r.priorPC>0) cav.push("Note: a new Payment Supplement isn't allowed within 36 months of a previous one — your servicer will check the date of yours.");
+  if (r.viaImminent) cav.push("Because you're less than 3 months behind, this assumes you qualify under FHA's imminent-default review (you document the hardship and sign a certification).");
+  if (r.bk==="yes") cav.push("Being in bankruptcy doesn't disqualify you — the servicer coordinates with the court (through your attorney if you have one) before finalizing anything.");
+  if (r.onNote==="no") cav.push("<strong>First step for you:</strong> ask the servicer to confirm you as a \"successor in interest\" (death certificate, deed, or divorce decree) — these options then open up to you, usually with a 6-payment trial period.");
+  if (r.disaster) cav.push("<strong>Disaster hardship:</strong> FHA also has dedicated disaster options with relaxed limits that this tool doesn't compute — ask your servicer specifically about disaster loss mitigation.");
+  const conf=outcomeConfidence({estimatedInputs:r.arrearsEst?1:0, nearThreshold:r.nearCap || r.priorPC>0});
+  return programResult({status:"eligible", heading, confidence:conf, lead:"You appear to meet FHA's published criteria. Based on what you entered, this is the option FHA would most likely reach:", rows, caveats:cav}) + disclaimerHTML("fha");
+}
+
+function runFHA(){
+  if (segState.investor==="all") mirrorShared();
+  const s=readFHA(); const r=evalFHA(s);
+  $("fhaResults").innerHTML = renderFHA(r,s);
+}
+function syncFhaImminent(){
+  const mb=num("fhaMonthsBehind");
+  $("fhaImminent").classList.toggle("hidden", !(mb!=null && mb<3));
+}
+
+/* ==================================================================== *
+ *  VA MODULE  (38 U.S.C. §3737; M26-4 Ch 5 & 22; live 06/15/2026)
+ * ==================================================================== */
+function vaMaxModRate(pmms30, existingRate){ return Math.min(round125(pmms30)+0.50, existingRate+1.00); }
+function vaPartialClaimCap(currentUPB, covidWindow){ return (covidWindow?0.30:0.25)*currentUPB; }
+
+function readVA(){
+  const s={};
+  s.origDate=isoFromMY("vaOrigMonth","vaOrigYear"); s.monthsSinceOrig=monthsSince(s.origDate);
+  s.monthsBehind=num("vaMonthsBehind"); s.arrearsExact=num("vaArrears"); s.rate=num("vaRate"); s.upb=num("vaUpb");
+  s.pi=num("vaPi"); s.escrow=num("vaEscrow"); s.pmms=num("vaPmms");
+  s.primary=val("vaPrimary"); s.covid=val("vaCovid"); s.priorPC=val("vaPriorPC");
+  s.priorMod=val("vaPriorMod"); s.bk=val("vaBk"); s.fc=val("vaFc"); s.onNote=val("vaOnNote");
+  s.hardship=val("vaHardship"); s.canResume=val("vaCanResume"); s.canReinstate=val("vaCanReinstate"); s.canRepay=val("vaCanRepay");
+  return s;
+}
+
+function evalVA(s){
+  const missing=[];
+  if (!(s.upb>0)) missing.push("UPB");
+  if (!(s.pi>0)) missing.push("monthly P&I");
+  if (!(s.rate>0)) missing.push("interest rate");
+  if (!(s.pmms>0)) missing.push("PMMS rate");
+  if (s.monthsBehind==null) missing.push("how many payments behind");
+  if (s.canResume===""||s.canResume==="unsure") missing.push("whether you can resume the payment within about 90 days");
+  if (missing.length) return {status:"needs-info", reasons:["Need: "+missing.join(" · ")]};
+
+  // VA-1: the home-retention waterfall applies to DELINQUENT loans.
+  if (s.monthsBehind===0) return {status:"needs-info", option:"VA home retention",
+    reasons:["You're current, and the VA home-retention options apply to loans that are behind. If you expect to miss a payment soon, call your servicer now and ask about a forbearance or repayment arrangement before the first miss — acting early keeps every option open."]};
+
+  if (s.canResume==="no") return {status:"ineligible", option:"Home retention",
+    reasons:["You indicated you can't resume the normal payment within about 90 days, so a home-retention option isn't the fit right now. The VA alternatives are a short sale or deed-in-lieu — ask your servicer about those."]};
+
+  // VM-11: a P&I that doesn't cover one month's interest means a mis-entered payment or balance.
+  if (s.pi <= s.upb*s.rate/1200) return {status:"needs-info", reasons:["The payment entered doesn't cover one month's interest at this rate and balance — double-check that the payment is P&I only and the balance is the principal balance (not a payoff quote)."]};
+
+  const full=s.pi+(s.escrow||0);
+  const usedExact=s.arrearsExact!=null;
+  const arrears = usedExact ? s.arrearsExact : (s.monthsBehind||0)*full;
+  s.arrearsEstimated=!usedExact;
+  const ceiling=vaMaxModRate(s.pmms, s.rate);
+  // VA-3: steps 1–2 need 61+ days = 3 payments due-and-unpaid (same convention as FHA/RULES §10).
+  const threePlus=s.monthsBehind>=3;
+  const newPI30=pmt(s.upb+arrears, ceiling, 360), newPI40=pmt(s.upb+arrears, ceiling, 480);
+  const tradRate=Math.min(s.rate, ceiling), tradPI=pmt(s.upb+arrears, tradRate, 360); // 30-yr re-amortization proxy
+
+  // VA-5 / SCN-6: one modification per 3 years; the PC needs 6+ payments since any mod.
+  const modsBarred = s.priorMod==="recent6" || s.priorMod==="within3";
+  const pcModBar   = s.priorMod==="recent6";
+  const modUnsure  = s.priorMod===""||s.priorMod==="unsure";
+
+  // Walk the 6-step waterfall; first qualifying option wins.
+  // 1. Special Forbearance (61+ days)
+  if (threePlus && s.canReinstate==="yes")
+    return vaOut("Special Forbearance", "eligible", s, {lead:"First qualifying option in the VA waterfall. Payments are paused or reduced short-term, then the past-due is repaid in a lump sum.", rows:[["Option","Special Forbearance (short-term)"],["Monthly payment","paused/reduced, then arrears due"]]});
+  // 2. Repayment Plan (61+ days)
+  if (threePlus && s.canRepay==="yes")
+    return vaOut("Repayment Plan", "eligible", s, {lead:"First qualifying option in the VA waterfall. The normal payment plus a monthly catch-up (up to ~24 months) clears the past-due.", rows:[["Option","Repayment Plan (up to ~24 months)"],["Monthly payment","normal payment + catch-up amount"]]});
+  // 3. Traditional VA Modification — under 3 months behind only (RULES §11 step 3).
+  if (!threePlus){
+    if (modsBarred) return {status:"needs-info", option:"VA home retention",
+      reasons:["At 1–2 months behind, the fitting option is a Traditional VA Modification — but this loan was modified within the last 3 years and the VA generally allows one modification per 3-year period. Talk to the servicer: they can request VA pre-approval for exceptions, or set up a repayment arrangement."]};
+    if (tradPI <= s.pi + 1e-6){
+      const r = vaOut("Traditional VA Modification", "eligible", s, {lead:"Capitalizes the past-due and re-amortizes so the payment does not rise above today's.", rows:[["Option","Traditional VA Modification"],["Estimated rate", fmtRate(tradRate)],["Estimated new P&I", fmtMoney2(tradPI)+" (≤ today's "+fmtMoney2(s.pi)+")"]], est:true});
+      r.caveatsExtra=["The estimate assumes re-amortizing over 30 years — the servicer sets the actual term, so the real payment may differ."];
+      if (modUnsure) r.caveatsExtra.push("If this loan was modified in the last 3 years, a new modification is generally not allowed — check your records.");
+      return r;
+    }
+    return {status:"needs-info", option:"VA home retention",
+      reasons:["At 1–2 months behind, a Traditional VA Modification (which can't raise your payment) doesn't pencil out with these figures. Call your servicer about a short repayment arrangement before reaching 3 months behind — more options open at that point, but catching up sooner is better."]};
+  }
+  // 4. 30-Year Modification, no-increase case (3+ months). When the 30-yr would RAISE
+  //    the payment, the payment-neutral Partial Claim is checked first (least disruption),
+  //    and the ≤15%-increase 30-yr only fires after the PC is ruled out.
+  if (!modsBarred && newPI30 <= s.pi + 1e-6)
+    return vaOut("30-Year Modification", "eligible", s, {lead:"Re-amortizes over 30 years at the VA mod-rate ceiling.", rows:[["Option","30-Year Modification"],["Estimated rate", fmtRate(ceiling)+" (ceiling)"],["Estimated new P&I", fmtMoney2(newPI30)],["Change vs today", fmtPct(newPI30/s.pi-1)]], est:true});
+  // 5. VA Partial Claim (payment-neutral; 3+ months + gates). VA-2/VM-10: unknown gate
+  //    answers must surface as questions — never silently skip a payment-neutral option.
+  const pc = pcAvailableVA(s, arrears);
+  if (pc.clean){
+    const cap=pc.cap;
+    const rows=[["Option","VA Partial Claim (payment-neutral)"],["Past-due covered (zero-interest, due at payoff/sale)", fmtMoney(arrears)],["Cap ("+(s.covid==="yes"?"30":"25")+"% of UPB)", fmtMoney(cap)],["Monthly payment","unchanged"]];
+    const r=vaOut("VA Partial Claim","eligible",s,{lead:"The past-due amount is moved into a zero-interest junior lien, curing the default without changing the monthly payment.", rows});
+    r.caveatsExtra=["The Partial Claim is <strong>fully discretionary</strong> — VA calls it \"not a home loan benefit,\" so meeting the criteria is necessary but not a guarantee.",
+      "Every borrower on the note must sign the Partial Claim documents — a co-borrower who won't sign (for example, after a divorce) blocks this option."];
+    if (arrears > 0.9*cap) r.caveatsExtra.push("<strong>Close to the "+(s.covid==="yes"?"30":"25")+"% cap</strong> — the servicer's exact reinstatement figure could push it over, so confirm before relying on this.");
+    return r;
+  }
+  if (pc.ask.length) return {status:"needs-info", option:"VA Partial Claim (payment-neutral) — a few answers away",
+    reasons:["A Partial Claim could cure the past-due amount <em>without changing your monthly payment</em>, but these answers are needed first: "+pc.ask.join("; ")+"."]};
+  // 30-yr with an increase (≤15%) comes after the payment-neutral PC is ruled out.
+  if (!modsBarred && newPI30 <= 1.15*s.pi)
+    return vaOut("30-Year Modification", "eligible", s, {lead:"Re-amortizes over 30 years at the VA mod-rate ceiling; VA allows up to a 15% payment increase on this step.", rows:[["Option","30-Year Modification"],["Estimated rate", fmtRate(ceiling)+" (ceiling)"],["Estimated new P&I", fmtMoney2(newPI30)],["Change vs today", fmtPct(newPI30/s.pi-1)+" (≤15% allowed)"]], est:true, pcSkipped:pc.why});
+  // 6. 40-Year Modification (last resort)
+  if (modsBarred) return {status:"needs-info", option:"VA home retention",
+    reasons:["This loan was modified within the last 3 years, and the VA generally allows one modification per 3-year period"+(pc.why?" — and the Partial Claim doesn't fit because "+pc.why:"")+". The servicer can request a VA exception; talk to them directly."]};
+  {
+    const r = vaOut("40-Year Modification", "eligible", s, {lead:"The last-resort retention option: re-amortize over 40 years at the mod-rate ceiling to reach an affordable payment.", rows:[["Option","40-Year Modification"],["Estimated rate", fmtRate(ceiling)+" (ceiling)"],["Estimated new P&I", fmtMoney2(newPI40)],["Change vs today", fmtPct(newPI40/s.pi-1)]], est:true});
+    if (pc.why) r.caveatsExtra=["A payment-neutral Partial Claim was ruled out because "+pc.why+" — if that's wrong, correct it above, because the Partial Claim would leave your payment unchanged."];
+    if (modUnsure) (r.caveatsExtra=r.caveatsExtra||[]).push("If this loan was modified in the last 3 years, a new modification is generally not allowed — check your records.");
+    return r;
+  }
+}
+// VA Partial Claim gate check. Returns {clean, cap, ask[], why} — `ask` lists unknown
+// answers that block a clean yes; `why` explains a hard block (for downstream caveats).
+function pcAvailableVA(s, arrears){
+  const out={clean:false, cap:vaPartialClaimCap(s.upb, s.covid==="yes"), ask:[], why:null};
+  const paymentsMade = (s.monthsSinceOrig!=null && s.monthsBehind!=null) ? Math.max(0, s.monthsSinceOrig - s.monthsBehind) : null;
+  if (s.primary==="no"){ out.why="the home isn't your primary residence"; return out; }
+  if (s.priorPC==="yes"){ out.why="a prior VA/COVID partial claim was already used (one per loan)"; return out; }
+  if (s.priorMod==="recent6"){ out.why="fewer than 6 payments have been made since the last modification"; return out; }
+  if (s.bk==="yes"){ out.why="of the active bankruptcy (options continue through the court — ask your attorney/servicer)"; return out; }
+  if (s.fc==="yes"){ out.why="a foreclosure has been noticed (act immediately with the servicer)"; return out; }
+  if (paymentsMade!=null && paymentsMade<12){ out.why="fewer than 12 payments have been made on the loan"; return out; }
+  // Unknowns that must be answered rather than silently failed (VA-2):
+  if (s.primary===""||s.primary==="unsure") out.ask.push("is this your primary residence?");
+  if (s.priorPC===""||s.priorPC==="unsure") out.ask.push("any prior VA/COVID partial claim?");
+  if (s.bk===""||s.bk==="unsure") out.ask.push("in active bankruptcy?");
+  if (s.fc===""||s.fc==="unsure") out.ask.push("foreclosure filed/noticed?");
+  if (s.monthsSinceOrig==null) out.ask.push("the loan origination date (12+ payments made are required)");
+  if ((s.covid===""||s.covid==="unsure") && arrears > 0.25*s.upb && arrears <= 0.30*s.upb)
+    out.ask.push("whether the past-due includes a still-unpaid payment first missed 3/2020–5/2025 (it decides the 25% vs 30% cap — and your case sits between them)");
+  if (out.ask.length) return out;
+  if (arrears > out.cap){ out.why="the past-due amount exceeds the "+(s.covid==="yes"?"30":"25")+"% cap"; return out; }
+  out.clean=true; return out;
+}
+function vaOut(option, status, s, o){ return {status, option, _s:s, lead:o.lead, rows:o.rows, est:o.est, pcSkipped:o.pcSkipped}; }
+
+function renderVA(r, s){
+  if (r.status!=="eligible"){
+    return programResult({status:r.status, heading:"VA — "+(r.option||"loss mitigation"), reasons:r.reasons}) + disclaimerHTML("va");
+  }
+  const cav=[];
+  if (r.est){
+    cav.push("This is an <strong>estimate</strong>, not an offer. Your servicer works out the real figures; the interest rate shown is a maximum, and your servicer may offer a lower one.");
+  }
+  if (s.arrearsEstimated) cav.push("Your past-due amount was estimated from the number of missed payments — entering the exact amount makes the estimate sharper.");
+  if (r.pcSkipped) cav.push("A payment-neutral Partial Claim was ruled out because "+r.pcSkipped+" — if that's wrong, correct the answer above.");
+  if (r.caveatsExtra) cav.push(...r.caveatsExtra);
+  if (/Modification/.test(r.option||"")) cav.push("The VA generally allows only <strong>one modification every 3 years</strong>.");
+  if (s.hardship==="disaster") cav.push("<strong>Disaster hardship:</strong> the VA also has dedicated disaster modification options (and a disaster exception to the one-partial-claim rule) that this tool doesn't compute — ask your servicer about them specifically.");
+  if (s.onNote==="no") cav.push("<strong>First step for you:</strong> you're not on the loan, so ask the servicer to confirm you as a \"successor in interest\" first (death certificate, deed, or divorce decree).");
+  cav.push("The VA reviews the options in order and offers the <strong>first</strong> one you qualify for; a short trial period of 3 payments applies to the modifications and the Partial Claim.");
+  const isPC=/Partial Claim/.test(r.option||"");
+  const conf=outcomeConfidence({estimatedInputs:s.arrearsEstimated?1:0, discretionary:isPC, nearThreshold:isPC && (r.caveatsExtra||[]).some(c=>/Close to the/.test(c))});
+  return programResult({status:"eligible", heading:"VA — "+r.option, confidence:conf, lead:r.lead, rows:r.rows, caveats:cav}) + disclaimerHTML("va");
+}
+
+function runVA(){
+  if (segState.investor==="all") mirrorShared();
+  const s=readVA(); const r=evalVA(s);
+  $("vaResults").innerHTML = renderVA(r,s);
+}
+
+/* ===== Outcome confidence (likelihood the estimate matches the servicer's answer) =====
+   Not the eligibility verdict — it's how much to trust THIS read given estimated inputs,
+   proximity to a rule threshold, and any servicer/insurer discretion. */
+function outcomeConfidence(f){
+  f=f||{};
+  let score=3; const why=[];
+  if (f.estimatedInputs>0){ score-=1; why.push((f.estimatedInputs===1?"a figure was":"figures were")+" estimated rather than taken exactly from the statement"); }
+  if (f.valuationEstimate){ score=Math.min(score,2); why.push("the property value is an estimate and the servicer's own valuation governs"); }
+  if (f.nearThreshold){ score=Math.min(score,2); why.push("a key number sits near a rule threshold"); }
+  if (f.inputMismatch){ score=Math.min(score,2); why.push("the figures entered don't fully agree with each other — double-check the payment/balance"); }
+  if (f.feesUnknown){ score=Math.min(score,2); why.push("foreclosure fees and servicer advances aren't in the estimate"); }
+  if (f.discretionary){ score=Math.min(score,2); why.push("this option is discretionary for the servicer/insurer even when the criteria are met"); }
+  if (f.sensitiveFlip){ score=1; why.push("the outcome changes within a plausible range of the values entered"); }
+  score=Math.max(1,Math.min(3,score));
+  return {level: score===3?"High":score===2?"Moderate":"Low", cls: score===3?"eligible":score===2?"info":"ineligible", why};
+}
+function confidenceLineHTML(conf){
+  if(!conf) return "";
+  const w = conf.why.length ? " — "+conf.why.join("; ")+"." : " — all key figures were exact and comfortably clear of the rule thresholds.";
+  return `<div class="conf"><span class="badge ${conf.cls}">Confidence: ${conf.level}</span><span class="small muted">${w}</span></div>`;
+}
+
+/* Shared result renderer for the FHA/VA modules. */
+function programResult(o){
+  let h=`<div class="result ${cardClass(o.status)}"><div class="rhead"><h3>${o.heading}</h3>${badge(o.status)}</div>`;
+  if (o.confidence) h+=confidenceLineHTML(o.confidence);
+  if (o.lead) h+=`<p class="why">${o.lead}</p>`;
+  if (o.reasons&&o.reasons.length) h+=(o.reasons.length===1?`<p class="why">${o.reasons[0]}</p>`:`<ul>${o.reasons.map(r=>`<li>${r}</li>`).join("")}</ul>`);
+  if (o.rows&&o.rows.length){ h+=`<div class="terms"><table>`; o.rows.forEach(([l,v])=>{ h+=`<tr><td>${l}</td><td>${v}</td></tr>`; }); h+=`</table></div>`; }
+  if (o.caveats&&o.caveats.length) h+=`<div class="callout" style="margin-top:12px"><strong>About this estimate</strong><ul style="margin:6px 0 0;padding-left:18px">${o.caveats.map(c=>`<li class="small">${c}</li>`).join("")}</ul></div>`;
+  return h+`</div>`;
+}
+
+/* ===== Paste-to-fill: parse loan-details text (DealMachine-style and generic) =====
+   Copy format observed: a label line ending in ":" (or "?"), an optional "help" line,
+   then the value line. Inline "Label: value" is tolerated too. All parsing is local. */
+function parseDealText(text){
+  const lines = String(text||"").split(/\r?\n/).map(t=>t.trim()).filter(Boolean);
+  const map = {};
+  const isLabel = t => /[:?]$/.test(t);
+  const norm = t => t.replace(/[:?]+$/,"").replace(/\s+/g," ").trim().toLowerCase();
+  for (let i=0;i<lines.length;i++){
+    const line = lines[i];
+    if (isLabel(line)){
+      let j=i+1;
+      while (j<lines.length && /^help$/i.test(lines[j])) j++;
+      if (j<lines.length && !isLabel(lines[j])){ map[norm(line)] = lines[j]; i=j; }
+      continue;
+    }
+    const inline = line.match(/^([A-Za-z][A-Za-z ()\/-]{2,40})[:?]\s+(.+)$/);
+    if (inline) map[norm(inline[1])] = inline[2].trim();
+  }
+  return map;
+}
+const moneyVal = t => { if(t==null) return null; const m=String(t).replace(/,/g,"").match(/\$?\s*(\d+(?:\.\d+)?)/); return m?parseFloat(m[1]):null; };
+const pctVal   = t => { if(t==null) return null; const m=String(t).match(/(\d+(?:\.\d+)?)\s*%?/); return m?parseFloat(m[1]):null; };
+const intVal   = t => { if(t==null) return null; const m=String(t).match(/(\d+)/); return m?parseInt(m[1],10):null; };
+function parseHumanDate(t){
+  if(t==null || /^--/.test(String(t))) return null;
+  const d = new Date(String(t).replace(/(\d+)(st|nd|rd|th)\b/gi,"$1"));
+  return isNaN(d) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+function addMonthsFirst(d, m){ return new Date(d.getFullYear(), d.getMonth()+m, 1); }  // snap to the 1st
+function monthsUntil(d){ const t=todayDate(); return (d.getFullYear()-t.getFullYear())*12 + (d.getMonth()-t.getMonth()); }
+function toISODate(d){ return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+
+function applyLoanPaste(){
+  const P = parseDealText($("pasteBox").value);
+  const out = $("pasteOut");
+  const g = k => { const v=P[k]; return (v==null || /^--/.test(String(v))) ? null : v; };
+
+  const rate     = pctVal(g("estimated interest rate"));
+  const origAmt  = moneyVal(g("original loan amount"));
+  let   upb      = moneyVal(g("estimated loan balance")); if (upb==null) upb = origAmt;
+  const pay      = moneyVal(g("estimated loan payment"));
+  const term     = intVal(g("loan term"));
+  const maturity = parseHumanDate(g("loan maturity date"));
+  const recording= parseHumanDate(g("last recording date"));
+  const financing= (g("financing type")||"").toLowerCase();
+  const loanKind = (g("loan type")||"").toLowerCase();
+  const mktValue = moneyVal(g("total market value"));
+  const taxDelq  = /yes/i.test(g("tax delinquent")||"");
+
+  // Origination = maturity − term (solid derivation); recording date as fallback.
+  const orig = (maturity && term) ? addMonthsFirst(maturity, -term) : recording;
+  const remaining = maturity ? Math.max(1, monthsUntil(maturity)) : null;
+
+  const filled=[], notes=[];
+  const setAll=(ids,v,label)=>{ if(v==null) return; let hit=false;
+    ids.forEach(id=>{ const el=$(id); if(el){ el.value=v; hit=true; } });
+    if(hit) filled.push(label); };
+
+  setAll(["rate","fhaRate","vaRate"], rate, "interest rate "+(rate!=null?rate+"%":""));
+  setAll(["upb","fhaUpb","vaUpb"], upb, "balance "+fmtMoney(upb));
+  setAll(["pi","fhaPi","vaPi"], pay, "payment "+fmtMoney(pay)+" (entered as P&I — edit if it includes escrow)");
+  setAll(["remTerm"], remaining, "remaining term "+remaining+" mo");
+  if (orig){
+    const mm=String(orig.getMonth()+1), yy=String(orig.getFullYear());
+    [["origMonth","origYear"],["fhaOrigMonth","fhaOrigYear"],["vaOrigMonth","vaOrigYear"]].forEach(([mId,yId])=>{
+      if($(mId)) $(mId).value=mm;
+      if($(yId)) $(yId).value=yy;
+    });
+    filled.push("start date "+toISODate(orig).slice(0,7));
+  }
+  if (financing){
+    const lt = /adjustable|arm/.test(financing) ? "arm" : /fixed/.test(financing) ? "fixed" : null;
+    if (lt){ const el=$("loanType"); if(el){ el.value=lt; syncChipUI(el); el.dispatchEvent(new Event("change")); filled.push("loan type: "+lt); } }
+  }
+  if (mktValue){ setAll(["propValue"], mktValue, "home value "+fmtMoney(mktValue)+" (county tax value)");
+    const src=$("propValueSource"); if(src){ src.value="tax"; syncChipUI(src); } }
+
+  if (!filled.length){
+    out.innerHTML = `<div class="callout" style="margin-top:12px">Couldn't find loan fields in that text. Paste the loan-details panel text (labels like "Original loan amount:", "Estimated interest rate:").</div>`;
+    return;
+  }
+
+  // Routing suggestion from the provider's loan-type label.
+  let hint="";
+  if (/fha/.test(loanKind)) hint=`This looks like an <strong>FHA</strong> loan — choose the FHA tab above.`;
+  else if (/\bva\b|veteran/.test(loanKind)) hint=`This looks like a <strong>VA</strong> loan — choose the VA tab above.`;
+  else if (/conventional/.test(loanKind)) hint=`"${g("loan type")}" suggests a conventional loan — choose <strong>Fannie Mae or Freddie Mac</strong> above if either owns it (the free lookups confirm in ~2 minutes).`;
+
+  if (origAmt!=null && upb===origAmt) notes.push("The balance equals the original loan amount — provider balances are often stale, so use the statement figure if you have it.");
+  if (taxDelq) notes.push("<strong>Property taxes show delinquent.</strong> A tax sale is separate from your mortgage — contact the tax office too; mortgage assistance won't stop it.");
+  notes.push("Everything filled is an editable estimate — correct any field that doesn't match the mortgage statement.");
+
+  out.innerHTML = `<div class="callout" style="margin-top:12px"><strong>Filled:</strong> ${filled.join(" · ")}${hint?`<p class="small" style="margin:8px 0 0">${hint}</p>`:""}<ul style="margin:8px 0 0;padding-left:18px">${notes.map(n=>`<li class="small">${n}</li>`).join("")}</ul></div>`;
+  if (typeof recomputeLive==="function" && segState.investor) recomputeLive();
+}
+// Sync a chipified select's visual state after a programmatic value change.
+function syncChipUI(sel){
+  const wrap = sel && sel.nextElementSibling;
+  if (!wrap || !wrap.classList || !wrap.classList.contains("seg")) return;
+  wrap.querySelectorAll("button").forEach(b=>b.setAttribute("aria-pressed", b.dataset.v===sel.value ? "true" : "false"));
+}
+
+/* ===== PMMS 30-yr rate auto-update =====
+   The browser can't fetch Freddie Mac / FRED cross-origin (CORS-blocked), and can't fetch
+   at all from file://. So a weekly job writes a small same-origin pmms.json (see
+   update-pmms.sh) and the page reads that (same-origin = no CORS). Falls back to the last
+   value (persisted in localStorage) and a manual field with a staleness reminder. */
+const PMMS_KEY = "xha_pmms";
+function todayISO(){ const d=todayDate(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0"); }
+function setPmmsValue(rate){ ["fhaPmms","vaPmms"].forEach(id=>{ const el=$(id); if(el) el.value=rate; }); }
+function setPmmsNotes(dateStr, auto){
+  const d=parseDate(dateStr); let msg="";
+  const link=` <a href="https://www.freddiemac.com/pmms" target="_blank" rel="noopener">PMMS ↗</a>`;
+  if (d){ const days=daysBetween(d, todayDate());
+    msg = days>8 ? `<strong style="color:var(--warn)">May be stale (${auto?"auto-updated":"set"} ${dateStr}); PMMS refreshes Thursdays.</strong>`
+                 : `<span class="muted">${auto?"Auto-updated":"Set"} ${dateStr}.</span>`;
+  }
+  const f=$("fhaPmmsNote"), v=$("vaPmmsNote");
+  if(f) f.innerHTML="Market Rate = this rounded to ⅛% + 0.25 (30-yr) / + 0.50 (40-yr). "+msg+link;
+  if(v) v.innerHTML="Mod-rate ceiling = lower of (this rounded to ⅛% + 0.50) and (current rate + 1.00). "+msg+link;
+}
+function persistPmms(rate,dateStr,auto){ try{ localStorage.setItem(PMMS_KEY, JSON.stringify({rate,date:dateStr,auto:!!auto})); }catch(e){} }
+// js-7: only accept well-formed payloads (a finite number + YYYY-MM-DD string) —
+// these values reach innerHTML, so validate shape at the boundary.
+function pmmsShapeOK(j){ return j && typeof j.rate==="number" && isFinite(j.rate) && j.rate>0 && j.rate<25 && typeof j.date==="string" && /^\d{4}-\d{2}-\d{2}$/.test(j.date); }
+function initPmms(){
+  let cur=null; try{ cur=JSON.parse(localStorage.getItem(PMMS_KEY)||"null"); }catch(e){}
+  if (!pmmsShapeOK(cur)) cur=null;
+  if (cur){ setPmmsValue(cur.rate); setPmmsNotes(cur.date, cur.auto); }
+  // Auto-fetch the weekly-updated same-origin file (only over http/https; skip file://).
+  if (location.protocol==="http:"||location.protocol==="https:"){
+    fetch("pmms.json",{cache:"no-store"}).then(r=>r.ok?r.json():null).then(j=>{
+      if (pmmsShapeOK(j)){
+        if (!cur || parseDate(j.date) >= parseDate(cur.date)){
+          setPmmsValue(j.rate); setPmmsNotes(j.date,true); persistPmms(j.rate,j.date,true);
+        }
+      }
+    }).catch(()=>{}); // not deployed yet / offline → stay on the manual value
+  }
+  // Manual edits: keep both fields in sync, persist, refresh the note.
+  ["fhaPmms","vaPmms"].forEach(id=>{ const el=$(id); if(!el) return;
+    el.addEventListener("input", e=>{
+      const raw=e.target.value; const v=parseFloat(raw);
+      ["fhaPmms","vaPmms"].forEach(o=>{ if(o!==id && $(o)) $(o).value=raw; });
+      if(!isNaN(v)){ const t=todayISO(); persistPmms(v,t,false); setPmmsNotes(t,false); }
+    });
+  });
+}
+
+function toggleCard(id){ $(id).classList.toggle("collapsed"); }
+
+window.addEventListener("DOMContentLoaded", ()=>{
+  runSelfTests();
+
+  setupSeg("investorSeg","investor", onInvestor);
+  setupSeg("atFinalSeg","atFinal", v=>{
+    $("armCapWrap").classList.toggle("hidden", v!=="no");
+  });
+  setupSeg("ficoModeSeg","ficoMode", v=>{
+    $("ficoExactWrap").classList.toggle("hidden", v!=="exact");
+    $("ficoBandWrap").classList.toggle("hidden", v!=="band");
+  });
+  // default fico mode — ui-05: reflect it visually too, not just in state
+  segState.ficoMode="exact";
+  const ficoDefault = document.querySelector('#ficoModeSeg button[data-v="exact"]');
+  if (ficoDefault) ficoDefault.setAttribute("aria-pressed","true");
+
+  $("loanType").addEventListener("change", e=>{
+    const t=e.target.value;
+    $("atFinalWrap").classList.toggle("hidden", t!=="arm" && t!=="step");
+    if (t!=="arm" && t!=="step"){ $("armCapWrap").classList.add("hidden"); }
+  });
+  $("foreclosure").addEventListener("change", e=>{
+    $("foreclosureDetail").classList.toggle("hidden", e.target.value!=="yes");
+  });
+  // js-2: imminent-default visibility depends on months-behind OR (arrears ÷ full payment),
+  // so pi/escrow edits must re-sync too.
+  ["monthsBehind","arrearsDollars","pi","escrow"].forEach(id=>$(id).addEventListener("input", syncImminentVisibility));
+
+  // SCN-3: reverse-mortgage screen-out.
+  $("fhaHecm").addEventListener("change", e=>{
+    const isHecm = e.target.value==="yes";
+    $("fhaHecmNote").classList.toggle("hidden", !isHecm);
+    $("fhaForm").classList.toggle("hidden", isHecm);
+  });
+
+  // SCN-8: ask "are you on the loan?" only when the hardship suggests a successor situation.
+  const successorTriggers = ["death","divorce","separation"];
+  $("hardshipType").addEventListener("change", e=>{
+    $("onNoteWrap").classList.toggle("hidden", !successorTriggers.includes(e.target.value));
+  });
+  $("fhaHardship").addEventListener("change", e=>{
+    $("fhaOnNoteWrap").classList.toggle("hidden", !successorTriggers.includes(e.target.value));
+  });
+  $("vaHardship").addEventListener("change", e=>{
+    $("vaOnNoteWrap").classList.toggle("hidden", !successorTriggers.includes(e.target.value));
+  });
+
+  // ui-02: associate each field's label with its first control for screen readers.
+  document.querySelectorAll(".field").forEach(f=>{
+    const l=f.querySelector("label"), c=f.querySelector("input,select");
+    if (l&&c&&c.id&&!l.htmlFor) l.htmlFor=c.id;
+  });
+
+  // Show the "existing non-interest-bearing balance" field only when it can apply
+  // (previously modified, or a prior payment deferral) — otherwise it's noise.
+  function syncNIB(){
+    const modded = ["1","2","3plus"].includes(val("priorMods"));
+    const deferred = val("priorDeferral")==="yes";
+    $("existingNIBWrap").classList.toggle("hidden", !(modded||deferred));
+  }
+  $("priorMods").addEventListener("change", syncNIB);
+  $("priorDeferral").addEventListener("change", syncNIB);
+
+  // Speed: numeric keypad on mobile for every number field.
+  document.querySelectorAll('input[type=number]').forEach(i=>i.setAttribute("inputmode","decimal"));
+
+  $("fhaMonthsBehind").addEventListener("input", syncFhaImminent);
+
+  // Decisive-only escrow: only shown when arrears will be ESTIMATED from months behind
+  // (that's when escrow actually changes the math).
+  function syncEscrow(){
+    $("escrowWrap").classList.toggle("hidden", !(num("monthsBehind")!=null && num("arrearsDollars")==null));
+    $("fhaEscrowWrap").classList.toggle("hidden", !(num("fhaMonthsBehind")!=null && num("fhaArrears")==null));
+    $("vaEscrowWrap").classList.toggle("hidden", !(num("vaMonthsBehind")!=null && num("vaArrears")==null));
+  }
+  ["monthsBehind","arrearsDollars","fhaMonthsBehind","fhaArrears","vaMonthsBehind","vaArrears"]
+    .forEach(id=>$(id).addEventListener("input", syncEscrow));
+
+  // Month selects (data-months) — populated once.
+  const MONTHS=["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  document.querySelectorAll("select[data-months]").forEach(sel=>{
+    sel.appendChild(new Option("Month…",""));
+    MONTHS.forEach((m,i)=>sel.appendChild(new Option(m, String(i+1))));
+  });
+
+  chipify();      // dropdowns → one-tap chips
+
+  // LIVE RESULTS: one delegated, debounced recompute for every input/change in the app.
+  let liveTimer=null;
+  const app=$("app");
+  const requestRecompute=()=>{ clearTimeout(liveTimer); liveTimer=setTimeout(recomputeLive, 180); };
+  app.addEventListener("input", requestRecompute);
+  app.addEventListener("change", requestRecompute);
+
+  $("modRate").addEventListener("input", refreshRateEcho);
+  $("modRateDate").addEventListener("input", refreshRateEcho);
+  refreshRateEcho();
+
+  initPmms();   // auto-load the PMMS 30-yr rate from pmms.json (same-origin), else manual
+});
+
+/* ===== Dropdown → chips enhancer =====
+   Replaces marked <select>s with one-tap button groups. The hidden select stays as
+   the value store, so all readState()/val() logic and change listeners keep working. */
+const CHIP_IDS=["priorMods","foreclosure","foreclosureWho","foreclosureState","hardshipDuration","hardshipResolved",
+  "priorDeferral","modLast12","failedTPP","onNote","canResume","canReinstate","canRepay",
+  "occPrimary","reserves25","ficoBand","lates2","dti40","loanType","propValueSource",
+  "fhaHecm","fhaBranch","fha24mo","fhaBars","fhaBk","fhaOnNote","fhaImmDefault",
+  "vaPrimary","vaCovid","vaPriorPC","vaPriorMod","vaBk","vaFc","vaOnNote","vaCanResume","vaCanReinstate","vaCanRepay"];
+function chipify(){
+  CHIP_IDS.forEach(id=>{
+    const sel=$(id);
+    if(!sel || sel.dataset.chipified) return;
+    sel.dataset.chipified="1";
+    const wrap=document.createElement("div");
+    wrap.className="seg small"; wrap.setAttribute("role","group");
+    const lbl=sel.closest(".field") && sel.closest(".field").querySelector("label");
+    if (lbl) wrap.setAttribute("aria-label", lbl.textContent.trim());
+    [...sel.options].forEach(o=>{
+      if(o.value==="") return;                       // skip the "Select…" placeholder
+      const b=document.createElement("button");
+      b.type="button"; b.textContent=o.text; b.dataset.v=o.value;
+      b.setAttribute("aria-pressed", sel.value===o.value ? "true" : "false");
+      b.addEventListener("click", ()=>{
+        sel.value=o.value;
+        wrap.querySelectorAll("button").forEach(x=>x.setAttribute("aria-pressed","false"));
+        b.setAttribute("aria-pressed","true");
+        sel.dispatchEvent(new Event("change",{bubbles:true}));
+      });
+      wrap.appendChild(b);
+    });
+    sel.style.display="none";
+    sel.insertAdjacentElement("afterend", wrap);
+  });
+}
+
+/* ===== Live recompute (no submit buttons) ===== */
+function recomputeLive(){
+  const mode = segState.investor;
+  if (mode==="gse" || mode==="all") runFull();
+  if (mode==="fha" || mode==="all") runFHA();
+  if (mode==="va"  || mode==="all") runVA();
+}
+// In check-all-three mode, shared GSE entries mirror into the FHA/VA fields so
+// nothing is typed twice. Runs before each recompute.
+const MIRROR=[["rate","fhaRate","vaRate"],["upb","fhaUpb","vaUpb"],["pi","fhaPi","vaPi"],
+  ["monthsBehind","fhaMonthsBehind","vaMonthsBehind"],["arrearsDollars","fhaArrears","vaArrears"],
+  ["escrow","fhaEscrow","vaEscrow"],["origMonth","fhaOrigMonth","vaOrigMonth"],["origYear","fhaOrigYear","vaOrigYear"]];
+const MIRROR_SEL=[["canResume","vaCanResume"],["canReinstate","vaCanReinstate"],["canRepay","vaCanRepay"]];
+function mirrorShared(){
+  MIRROR.forEach(([src,...dst])=>{ const v=$(src).value; dst.forEach(d=>{ const el=$(d); if(el) el.value=v; }); });
+  MIRROR_SEL.forEach(([src,dst])=>{ const el=$(dst); if(el && $(src).value){ el.value=$(src).value; syncChipUI(el); } });
+  const h=val("hardshipType");
+  const map={jobloss:"jobloss",income:"income",expense:"expense",disability:"disability",death:"death",divorce:"divorce",disaster:"disaster",separation:"divorce",paymentIncrease:"other",other:"other"};
+  if (h){ const fh=$("fhaHardship"), vh=$("vaHardship");
+    if (fh && map[h]) fh.value=map[h];
+    if (vh && map[h]) vh.value=map[h]; }
+}
+function checkAllPrograms(){
+  segState.investor="all";
+  $("investorNote").innerHTML = `<div class="callout"><strong>Checking all three rulebooks at once.</strong> Your entries below feed all of them — the few program-specific questions appear in the FHA and VA sections. When you find out who actually backs your loan, tap that option above for the single answer that applies.</div>`;
+  ["step2","step3","resultsCard","fhaModule","vaModule"].forEach(id=>$(id).classList.remove("hidden"));
+  syncFhaImminent();
+  recomputeLive();
+}
+</script>
