@@ -183,6 +183,12 @@
   .wizslot .field>label{display:block;font-size:22px;font-weight:700;line-height:1.25;margin-bottom:14px}
   .wizslot .field .desc{font-size:14px;margin-top:10px}
   .wizslot .seg button{min-height:48px;font-size:16px}
+  /* On the one-question stage the big label carries the question, so the inline
+     suffix text is redundant — hide it and let both inputs sit full-width/equal. */
+  .wizslot .inline .muted{display:none}
+  .wizslot .inline input{flex:1 1 100%}
+  /* Auto-scroll at finish must clear the sticky header */
+  #resultsCard,#fhaModule,#vaModule,#wizCard{scroll-margin-top:64px}
   /* snappy slide: outgoing left, incoming from right — transform/opacity only */
   @media (prefers-reduced-motion: no-preference){
     .wiz-in{animation:wizin .22s cubic-bezier(.25,.9,.35,1) both}
