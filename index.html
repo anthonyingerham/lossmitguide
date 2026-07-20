@@ -315,6 +315,7 @@
       <button class="primary" type="button" id="wizNextBtn" onclick="wizAdvance()">Next →</button>
       <button class="ghost" type="button" id="wizSkipBtn" onclick="wizAdvance()">Skip</button>
     </div>
+    <p class="small" style="color:var(--muted);margin:10px 0 0" id="wizReassure">Skip anything you don't know — your results will show what it affects.</p>
     <div class="btnrow hidden" id="wizDoneRow">
       <button class="ghost" type="button" onclick="wizEdit()">← Edit answers</button>
       <button class="ghost" type="button" onclick="location.reload()">Start over</button>
@@ -327,6 +328,7 @@
     <div class="grid">
       <div class="field">
         <label>When did the loan start?</label>
+        <div class="desc">Your best memory of the month you closed is fine.</div>
         <div class="inline">
           <select id="origMonth" data-months style="flex:1 1 110px"></select>
           <input type="number" id="origYear" min="1960" max="2026" placeholder="year" style="flex:1 1 90px">
@@ -343,7 +345,7 @@
           <option value="3plus">3 or more times</option>
           <option value="unsure">Not sure</option>
         </select>
-        <div class="desc">Payment deferrals do not count as modifications.</div>
+        <div class="desc">A modification = the servicer permanently changed your rate, payment, or loan length (you'd have signed new paperwork). Payment deferrals do not count.</div>
       </div>
 
       <div class="field full">
@@ -352,6 +354,7 @@
           <div class="inline"><input type="number" id="monthsBehind" min="0" step="1" placeholder="payments missed"> <span class="muted small">payments behind</span></div>
           <div class="prefix"><input type="number" id="arrearsDollars" min="0" placeholder="total past-due amount"></div>
         </div>
+        <div class="desc">Either box works — if you only know how many payments you've missed, that's enough; we'll estimate the dollars.</div>
       </div>
 
       <div class="field">
@@ -384,6 +387,7 @@
 
       <div class="field">
         <label>Is the hardship temporary or long-term?</label>
+        <div class="desc">Your "hardship" = whatever knocked the budget off track — job loss, illness, divorce, a big expense.</div>
         <select id="hardshipDuration">
           <option value="">Select…</option>
           <option value="temporary">Temporary / short-term</option>
@@ -418,6 +422,7 @@
           <option value="step">Step-rate</option>
           <option value="io">Interest-only</option>
         </select>
+        <div class="desc">If your payment has never changed on its own, it's almost certainly fixed. Adjustable (ARM) rates move on a schedule.</div>
       </div>
       <div class="field hidden" id="atFinalWrap">
         <label>Is it at its final rate?</label>
@@ -429,20 +434,22 @@
       <div class="field hidden" id="armCapWrap">
         <label>ARM lifetime cap <span class="opt">(if not at final rate)</span></label>
         <div class="suffix-pct"><input type="number" id="armCap" step="0.001" placeholder="e.g. 9.5"></div>
+        <div class="desc">It's in your original loan papers (the "note"). Don't have them handy? Skip this.</div>
       </div>
       <div class="field">
         <label>Current interest rate</label>
+        <div class="desc">It's on every mortgage statement.</div>
         <div class="suffix-pct"><input type="number" id="rate" step="0.001" placeholder="e.g. 7.5"></div>
       </div>
       <div class="field">
-        <label>Unpaid principal balance (UPB)</label>
+        <label>How much do you still owe? <span class="opt">(principal balance)</span></label>
         <div class="prefix"><input type="number" id="upb" min="0" placeholder="e.g. 300000"></div>
-        <div class="desc">Not the payoff quote.</div>
+        <div class="desc">On your statement as "principal balance" — not the payoff quote.</div>
       </div>
       <div class="field">
         <label>Monthly payment (principal &amp; interest only)</label>
         <div class="prefix"><input type="number" id="pi" min="0" placeholder="e.g. 2216.97"></div>
-        <div class="desc">P&amp;I only — do not include taxes/insurance here.</div>
+        <div class="desc">Your statement splits the payment — enter just the "principal &amp; interest" line, not the total with taxes/insurance.</div>
       </div>
       <div class="field hidden" id="escrowWrap">
         <label>Monthly escrow <span class="opt">(optional)</span></label>
@@ -450,12 +457,14 @@
         <div class="desc">Include it if your payment covers taxes and insurance.</div>
       </div>
       <div class="field">
-        <label>Remaining term</label>
+        <label>How many months are left on the loan?</label>
         <div class="inline"><input type="number" id="remTerm" min="1" placeholder="months"> <span class="muted small">months left</span></div>
+        <div class="desc">Not sure? Skip it — we'll estimate from the start date (assuming a 30-year loan) and say so in your results.</div>
       </div>
       <div class="field">
-        <label>Estimated property value</label>
+        <label>About what is the home worth today?</label>
         <div class="prefix"><input type="number" id="propValue" min="0" placeholder="e.g. 320000"></div>
+        <div class="desc">A rough idea of what it would sell for is fine — a Zillow-style estimate works.</div>
       </div>
       <div class="field">
         <label>Where is that value from?</label>
@@ -467,8 +476,9 @@
         </select>
       </div>
       <div class="field hidden" id="existingNIBWrap">
-        <label>Existing non-interest-bearing balance <span class="opt">(if any)</span></label>
+        <label>Amount a past modification set aside at 0% interest <span class="opt">(if any)</span></label>
         <div class="prefix"><input type="number" id="existingNIB" min="0" placeholder="from a prior mod/deferral"></div>
+        <div class="desc">On your statement as a "deferred", "non-interest-bearing", or "deferral" balance. Not sure? Skip.</div>
       </div>
     </div>
 
@@ -476,6 +486,7 @@
     <div class="grid">
       <div class="field">
         <label>Prior payment deferral in the last 12 months?</label>
+        <div class="desc">A deferral moved missed payments to the end of the loan — you'd have signed paperwork for it.</div>
         <select id="priorDeferral">
           <option value="">Select…</option>
           <option value="no">No</option>
@@ -500,7 +511,7 @@
           <option value="yes">Yes</option>
           <option value="unsure">Not sure</option>
         </select>
-        <div class="desc">Converting a trial plan to forbearance is not a failure.</div>
+        <div class="desc">A trial-period plan = about three test payments at a new amount before a modification becomes final. Converting a trial plan to forbearance is not a failure.</div>
       </div>
     </div>
 
@@ -524,6 +535,7 @@
       </div>
       <div class="field full hidden" id="onNoteWrap">
         <label>Are you a borrower named on the loan?</label>
+        <div class="desc">On the loan itself — not just the deed or house title.</div>
         <select id="onNote">
           <option value="">Select…</option>
           <option value="yes">Yes — I'm on the loan</option>
@@ -540,7 +552,7 @@
         <select id="canResume"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option><option value="unsure">Not sure</option></select>
       </div>
       <div class="field">
-        <label>Can you pay the full past-due amount now (reinstate)?</label>
+        <label>Could you pay the entire past-due amount right now, in one payment?</label>
         <select id="canReinstate"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option><option value="unsure">Not sure</option></select>
       </div>
       <div class="field">
@@ -558,11 +570,12 @@
           <select id="occPrimary"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option><option value="unsure">Not sure</option></select>
         </div>
         <div class="field">
-          <label>Non-retirement cash reserves under $25,000?</label>
+          <label>Outside retirement accounts, is your cash and savings under $25,000?</label>
           <select id="reserves25"><option value="">Select…</option><option value="yes">Yes — under $25k</option><option value="no">No — $25k or more</option><option value="unsure">Not sure</option></select>
         </div>
         <div class="field">
           <label>Credit score</label>
+          <div class="desc">These programs don't require good credit — this only fine-tunes one early-stage rule.</div>
           <div class="seg small" id="ficoModeSeg" role="group">
             <button type="button" data-v="exact">Enter exact</button>
             <button type="button" data-v="band">Just ≤620?</button>
@@ -582,6 +595,7 @@
         </div>
         <div class="field">
           <label>Is housing expense more than 40% of gross monthly income?</label>
+          <div class="desc">Housing expense = your full mortgage payment including taxes &amp; insurance. Gross income = before taxes.</div>
           <select id="dti40"><option value="">Select…</option><option value="yes">Yes — over 40%</option><option value="no">No — 40% or less</option><option value="unsure">Not sure</option></select>
         </div>
       </div>
@@ -616,6 +630,7 @@
     <div class="grid">
       <div class="field">
         <label>When did the loan start?</label>
+        <div class="desc">Your best memory of the month you closed is fine.</div>
         <div class="inline">
           <select id="fhaOrigMonth" data-months style="flex:1 1 110px"></select>
           <input type="number" id="fhaOrigYear" min="1960" max="2026" placeholder="year" style="flex:1 1 90px">
@@ -631,15 +646,17 @@
       </div>
       <div class="field">
         <label>Current interest rate</label>
+        <div class="desc">It's on every mortgage statement.</div>
         <div class="suffix-pct"><input type="number" id="fhaRate" step="0.001" placeholder="e.g. 7.5"></div>
       </div>
       <div class="field">
-        <label>Unpaid principal balance (UPB)</label>
+        <label>How much do you still owe? <span class="opt">(principal balance)</span></label>
         <div class="prefix"><input type="number" id="fhaUpb" min="0" placeholder="e.g. 250000"></div>
-        <div class="desc">Not the payoff quote.</div>
+        <div class="desc">On your statement as "principal balance" — not the payoff quote.</div>
       </div>
       <div class="field">
         <label>Monthly payment (P&amp;I only)</label>
+        <div class="desc">Your statement splits the payment — enter just the "principal &amp; interest" line, not the total with taxes/insurance.</div>
         <div class="prefix"><input type="number" id="fhaPi" min="0" placeholder="e.g. 1791.76"></div>
       </div>
       <div class="field hidden" id="fhaEscrowWrap">
@@ -649,6 +666,7 @@
       <div class="field">
         <label>Existing partial-claim / payment-supplement balance <span class="opt">(if any)</span></label>
         <div class="prefix"><input type="number" id="fhaPriorPC" min="0" placeholder="leave blank if none"></div>
+        <div class="desc">Help HUD already gave you before — a zero-interest "partial claim" you signed for (many homeowners did after COVID). Not sure? Skip.</div>
       </div>
       <!-- PMMS rate: hidden from the public view; auto-updates from pmms.json and feeds the estimate. -->
       <div class="field hidden">
@@ -676,6 +694,7 @@
       </div>
       <div class="field hidden" id="fhaOnNoteWrap">
         <label>Are you a borrower named on the loan?</label>
+        <div class="desc">On the loan itself — not just the deed or house title.</div>
         <select id="fhaOnNote">
           <option value="">Select…</option>
           <option value="yes">Yes — I'm on the loan</option>
@@ -687,7 +706,7 @@
         <select id="fhaBk"><option value="">Select…</option><option value="no">No</option><option value="yes">Yes</option><option value="unsure">Not sure</option></select>
       </div>
       <div class="field">
-        <label>Can they resume the current payment, or do they need it lowered?</label>
+        <label>Can you resume your current payment, or do you need it lowered?</label>
         <select id="fhaBranch">
           <option value="">Select…</option>
           <option value="resume">Can resume the current payment (just needs to clear the past-due)</option>
@@ -719,7 +738,7 @@
       <h3 style="font-size:14px;margin:18px 0 2px">Because you're less than 3 months behind…</h3>
       <div class="grid">
         <div class="field">
-          <label>Current or less than 30 days past due, with a hardship that will stop the next payment?</label>
+          <label>Are you still current (or less than 30 days late), but the hardship will make you miss payments?</label>
           <select id="fhaImmDefault"><option value="">Select…</option><option value="yes">Yes</option><option value="no">No</option><option value="unsure">Not sure</option></select>
         </div>
       </div>
@@ -738,6 +757,7 @@
     <div class="grid">
       <div class="field">
         <label>When did the loan start?</label>
+        <div class="desc">Your best memory of the month you closed is fine.</div>
         <div class="inline">
           <select id="vaOrigMonth" data-months style="flex:1 1 110px"></select>
           <input type="number" id="vaOrigYear" min="1960" max="2026" placeholder="year" style="flex:1 1 90px">
@@ -753,15 +773,17 @@
       </div>
       <div class="field">
         <label>Current interest rate</label>
+        <div class="desc">It's on every mortgage statement.</div>
         <div class="suffix-pct"><input type="number" id="vaRate" step="0.001" placeholder="e.g. 3.5"></div>
       </div>
       <div class="field">
-        <label>Unpaid principal balance (UPB)</label>
+        <label>How much do you still owe? <span class="opt">(principal balance)</span></label>
         <div class="prefix"><input type="number" id="vaUpb" min="0" placeholder="e.g. 300000"></div>
-        <div class="desc">Not the payoff quote.</div>
+        <div class="desc">On your statement as "principal balance" — not the payoff quote.</div>
       </div>
       <div class="field">
         <label>Monthly payment (P&amp;I only)</label>
+        <div class="desc">Your statement splits the payment — enter just the "principal &amp; interest" line, not the total with taxes/insurance.</div>
         <div class="prefix"><input type="number" id="vaPi" min="0" placeholder="e.g. 1432.58"></div>
       </div>
       <div class="field hidden" id="vaEscrowWrap">
@@ -784,10 +806,12 @@
       </div>
       <div class="field">
         <label>Does the current past-due amount include a payment first missed between March 2020 and May 2025 that is still unpaid?</label>
+        <div class="desc">This only decides which assistance cap applies — "Not sure" is a safe answer.</div>
         <select id="vaCovid"><option value="">Select…</option><option value="no">No</option><option value="yes">Yes</option><option value="unsure">Not sure</option></select>
       </div>
       <div class="field">
         <label>Any prior VA partial claim, COVID-19 VA partial claim, or COVID refund modification?</label>
+        <div class="desc">A partial claim = the VA covered your missed payments and you signed a separate zero-interest note (common during COVID).</div>
         <select id="vaPriorPC"><option value="">Select…</option><option value="no">No</option><option value="yes">Yes</option><option value="unsure">Not sure</option></select>
       </div>
       <div class="field">
@@ -829,6 +853,7 @@
       </div>
       <div class="field full hidden" id="vaOnNoteWrap">
         <label>Are you a borrower named on the loan?</label>
+        <div class="desc">On the loan itself — not just the deed or house title.</div>
         <select id="vaOnNote">
           <option value="">Select…</option>
           <option value="yes">Yes — I'm on the loan</option>
@@ -1098,6 +1123,12 @@ function readState(){
   s.pi = num("pi");
   s.escrow = num("escrow");
   s.remTerm = num("remTerm");
+  s.remTermEstimated = false;
+  if (s.remTerm==null && s.origDate){
+    // Skipped: assume the standard 30-year term from the start date (flagged in confidence + caveats)
+    const elapsed = monthsSince(s.origDate);
+    if (elapsed!=null && elapsed>=0 && elapsed<360){ s.remTerm = 360-elapsed; s.remTermEstimated = true; }
+  }
   s.monthsToMaturity = s.remTerm;  // = remaining term for amortizing loans (maturity field removed)
   s.propValue = num("propValue");
   s.propValueSource = val("propValueSource") || "avm";
@@ -1481,7 +1512,7 @@ function renderTerms(c){
   const curTotal = (s.pi||0) + (s.escrow||0);
   const newTotal = w.newPi + (s.escrow||0);
   const conf = outcomeConfidence({
-    estimatedInputs: (c.extra.estimatedArrears?1:0) + (s.estimatedMonthsBehind?1:0),
+    estimatedInputs: (c.extra.estimatedArrears?1:0) + (s.estimatedMonthsBehind?1:0) + (s.remTermEstimated?1:0),
     valuationEstimate: s.propValueSource !== "appraisal",     // a recent appraisal is treated as solid
     sensitiveFlip: c.extra.sensitivity && c.extra.sensitivity.sensitive,
     inputMismatch: !!(c.extra.reconMismatch || c.extra.pitiSuspect),
@@ -1506,6 +1537,7 @@ function renderTerms(c){
   caveats.push(`This is an <strong>estimate</strong> of the modified payment, not an offer. The servicer computes the real number using their own balance, advances, and property valuation.`);
   if (!w.hitTarget) caveats.push(`The waterfall could not reach the full 20% target — these are the best terms the steps produce, and they still satisfy the payment rule.`);
   if (c.extra.estimatedArrears) caveats.push(`Past-due amount was estimated from the number of missed payments; entering the exact figure will sharpen the estimate.`+((s.escrow==null)?` No escrow was entered, so the estimate may be low if your payment includes taxes/insurance.`:``));
+  if (s.remTermEstimated) caveats.push(`Months remaining were estimated from the loan's start date assuming a 30-year term — if yours is a 15- or 20-year loan, enter the actual months left for exact figures.`);
   if (c.extra.foreclosureActive && c.extra.estimatedArrears) caveats.push(`<strong>Foreclosure legal costs are not in this estimate.</strong> Once an attorney is involved, roughly $2,000–$5,000+ of fees and advances are also added to the balance — expect the real payment to be somewhat higher than shown.`);
   if (c.extra.pitiSuspect) caveats.push(`The payment you entered appears to <strong>include escrow</strong> — the P&I-only portion computes to about ${fmtMoney2(w.computedPrePi)}. Enter just the principal-and-interest amount for an accurate reduction target.`);
   else if (c.extra.ioDetected) caveats.push(`Your current payment appears to be <strong>interest-only</strong>. A Flex Modification always produces a fully amortizing fixed-rate loan, so the before/after comparison is measured against your interest-only payment — the servicer applies the same rule.`);
@@ -2298,6 +2330,7 @@ function startWizard(mode){
   ["step1","pasteCard","step2","step3","resultsCard","fhaModule","vaModule"].forEach(id=>$(id).classList.add("hidden"));
   $("wizCard").classList.remove("hidden");
   $("wizFooter").classList.remove("hidden");
+  $("wizReassure").classList.remove("hidden");
   $("wizDoneRow").classList.add("hidden");
   wizAdvance(true);
 }
@@ -2369,6 +2402,7 @@ function wizExit(){
 function wizFinish(){
   wizDone=true; window.__wizDone=true;
   $("wizFooter").classList.add("hidden");
+  $("wizReassure").classList.add("hidden");
   $("wizDoneRow").classList.remove("hidden");
   $("wizCount").textContent="All done — your results:";
   $("wizBar").style.width="100%";
@@ -2382,6 +2416,7 @@ function wizEdit(){
   wizDone=false; window.__wizDone=false;
   ["resultsCard","fhaModule","vaModule"].forEach(id=>$(id).classList.add("hidden"));
   $("wizFooter").classList.remove("hidden");
+  $("wizReassure").classList.remove("hidden");
   $("wizDoneRow").classList.add("hidden");
   const last=wizPos;
   wizStage(last, -1);
