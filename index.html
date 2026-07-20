@@ -173,8 +173,31 @@
   a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
   input[type=date]{min-height:47px}
   input[type=date]::-webkit-date-and-time-value{text-align:left}
-  /* Live-results status line */
-  .livestatus{font-size:14px;color:var(--muted);margin:2px 0 10px}
+  /* ===== One-question wizard ===== */
+  #wizCard{min-height:320px;display:flex;flex-direction:column}
+  .wizprogress{height:6px;background:var(--line);border-radius:3px;overflow:hidden}
+  .wizbar{height:100%;width:0%;background:var(--accent);transition:width .25s cubic-bezier(.3,.9,.4,1)}
+  .wizcount{font-size:13px;color:var(--muted);margin:10px 0 4px}
+  .wizslot{flex:1;padding:8px 0 4px;overflow:hidden}
+  .wizslot .field{max-width:560px}
+  .wizslot .field>label{display:block;font-size:22px;font-weight:700;line-height:1.25;margin-bottom:14px}
+  .wizslot .field .desc{font-size:14px;margin-top:10px}
+  .wizslot .seg button{min-height:48px;font-size:16px}
+  /* snappy slide: outgoing left, incoming from right — transform/opacity only */
+  @media (prefers-reduced-motion: no-preference){
+    .wiz-in{animation:wizin .22s cubic-bezier(.25,.9,.35,1) both}
+    .wiz-out{animation:wizout .16s cubic-bezier(.6,0,.8,.5) both}
+    .wiz-in-back{animation:wizinback .22s cubic-bezier(.25,.9,.35,1) both}
+    .wiz-out-back{animation:wizoutback .16s cubic-bezier(.6,0,.8,.5) both}
+  }
+  @keyframes wizin{from{opacity:0;transform:translateX(46px)}to{opacity:1;transform:none}}
+  @keyframes wizout{from{opacity:1;transform:none}to{opacity:0;transform:translateX(-46px)}}
+  @keyframes wizinback{from{opacity:0;transform:translateX(-46px)}to{opacity:1;transform:none}}
+  @keyframes wizoutback{from{opacity:1;transform:none}to{opacity:0;transform:translateX(46px)}}
+  /* results view in wizard mode: hide the emptied form scaffolding */
+  body.wizard #fhaModule .grid, body.wizard #fhaModule h3, body.wizard #fhaModule .hint,
+  body.wizard #vaModule .grid,  body.wizard #vaModule h3,  body.wizard #vaModule .hint,
+  body.wizard #fhaHecmNote{display:none}
 </style>
 
 <!-- Passphrase gate removed for now (re-add later): restore the #gate block, the gate()
@@ -257,6 +280,23 @@
       <div id="pasteOut" role="status" aria-live="polite"></div>
     </div>
   </div>
+
+  <!-- ===================== WIZARD STAGE (one question per screen) ========= -->
+  <div class="card hidden" id="wizCard">
+    <div class="wizprogress"><div class="wizbar" id="wizBar"></div></div>
+    <p class="wizcount" id="wizCount"></p>
+    <div id="wizSlot" class="wizslot"></div>
+    <div class="btnrow" id="wizFooter">
+      <button class="ghost" type="button" id="wizBackBtn" onclick="wizBack()">← Back</button>
+      <button class="primary" type="button" id="wizNextBtn" onclick="wizAdvance()">Next →</button>
+      <button class="ghost" type="button" id="wizSkipBtn" onclick="wizAdvance()">Skip</button>
+    </div>
+    <div class="btnrow hidden" id="wizDoneRow">
+      <button class="ghost" type="button" onclick="wizEdit()">← Edit answers</button>
+      <button class="ghost" type="button" onclick="location.reload()">Start over</button>
+    </div>
+  </div>
+  <div id="wizPark" class="hidden" aria-hidden="true"></div>
 
   <!-- ===================== STEP 2: QUICK SCREEN =========================== -->
   <div class="card hidden" id="step2">
@@ -343,7 +383,6 @@
 
   <!-- ===================== STEP 3: FULL DETAILS =========================== -->
   <div class="card hidden" id="step3">
-    <p class="hint">Leave anything unknown blank — the result will say what's missing.</p>
 
     <h3 style="font-size:14px;margin:6px 0 2px">The loan</h3>
     <div class="grid">
@@ -529,7 +568,6 @@
   <!-- ===================== RESULTS (live) ================================= -->
   <div class="card hidden" id="resultsCard">
     <h2>Results</h2>
-    <p class="livestatus">Updates automatically as you answer — you can stop as soon as you have your answer.</p>
     <div id="results" aria-live="polite"></div>
   </div>
 
@@ -664,7 +702,6 @@
     </div>
 
     </div><!-- /fhaForm -->
-    <p class="livestatus" style="margin-top:14px">Results update automatically as you answer.</p>
     <div id="fhaResults" aria-live="polite"></div>
   </div>
 
@@ -788,7 +825,6 @@
       </div>
     </div>
 
-    <p class="livestatus" style="margin-top:14px">Results update automatically as you answer.</p>
     <div id="vaResults" aria-live="polite"></div>
   </div>
 
@@ -1528,27 +1564,23 @@ function disclaimerHTML(program){
 
 /* Investor selection behavior */
 function hideAllFlows(){
-  ["step2","step3","resultsCard","fhaModule","vaModule"].forEach(id=>$(id).classList.add("hidden"));
+  ["step2","step3","resultsCard","fhaModule","vaModule","wizCard"].forEach(id=>$(id).classList.add("hidden"));
+  document.body.classList.remove("wizard");
   $("investorNote").innerHTML = "";
 }
 function onInvestor(v){
   hideAllFlows();
   const note = $("investorNote");
   if (v==="gse"){
-    ["step2","step3","resultsCard"].forEach(id=>$(id).classList.remove("hidden"));
-    syncImminentVisibility();
-    recomputeLive();
+    startWizard("gse");
   } else if (v==="notsure"){
     note.innerHTML = `<div class="callout"><strong>Two ways to go:</strong>
       <p class="small" style="margin:8px 0 0"><strong>Fastest:</strong> <button class="ghost" type="button" style="margin:4px 0" onclick="checkAllPrograms()">Check all three programs at once</button></p>
       <p class="small" style="margin:8px 0 0"><strong>Most precise:</strong> look up who owns your loan (~2 minutes) — <a href="https://yourhome.fanniemae.com/calculators-tools/loan-lookup" target="_blank" rel="noopener">Fannie Mae lookup ↗</a> · <a href="https://myhome.freddiemac.com/resources/loanlookup" target="_blank" rel="noopener">Freddie Mac lookup ↗</a>. If neither owns it, check your statement for FHA or VA.</p></div>`;
   } else if (v==="fha"){
-    $("fhaModule").classList.remove("hidden");
-    syncFhaImminent();
-    recomputeLive();
+    startWizard("fha");
   } else if (v==="va"){
-    $("vaModule").classList.remove("hidden");
-    recomputeLive();
+    startWizard("va");
   } else {
     note.innerHTML = otherProgramCard(v);
   }
@@ -2094,7 +2126,7 @@ function applyLoanPaste(){
   notes.push("Everything filled is an editable estimate — correct any field that doesn't match the mortgage statement.");
 
   out.innerHTML = `<div class="callout" style="margin-top:12px"><strong>Filled:</strong> ${filled.join(" · ")}${hint?`<p class="small" style="margin:8px 0 0">${hint}</p>`:""}<ul style="margin:8px 0 0;padding-left:18px">${notes.map(n=>`<li class="small">${n}</li>`).join("")}</ul></div>`;
-  if (typeof recomputeLive==="function" && segState.investor) recomputeLive();
+  if (window.__wizDone && typeof recomputeLive==="function" && segState.investor) recomputeLive();
 }
 // Sync a chipified select's visual state after a programmatic value change.
 function syncChipUI(sel){
@@ -2147,6 +2179,206 @@ function initPmms(){
       ["fhaPmms","vaPmms"].forEach(o=>{ if(o!==id && $(o)) $(o).value=raw; });
       if(!isNaN(v)){ const t=todayISO(); persistPmms(v,t,false); setPmmsNotes(t,false); }
     });
+  });
+}
+
+/* ==================================================================== *
+ *  ONE-QUESTION WIZARD
+ *  Presents the existing form fields one per screen. Fields are MOVED into
+ *  the stage (never cloned), so ids, values, chips, and the whole engine
+ *  keep working untouched. Questions that don't apply are skipped via when().
+ * ==================================================================== */
+const gv = id => { const el=$(id); return el ? String(el.value||"").trim() : ""; };
+const wq = (inputs, when, auto=true, opts={}) => ({inputs, when, auto, ...opts});
+const underSixty = () => { const m=parseFloat(gv("monthsBehind")); return !isNaN(m) && m*30 < 60; };
+const notHecm = () => gv("fhaHecm")!=="yes";
+const armLike = () => ["arm","step"].includes(gv("loanType"));
+
+const WIZ_GSE = [
+  wq(["origMonth","origYear"], null, false),
+  wq(["priorMods"]),
+  wq(["monthsBehind","arrearsDollars"], null, false, {answered:"any"}),
+  wq(["escrow"], ()=>gv("monthsBehind")!=="" && gv("arrearsDollars")==="", false),
+  wq(["foreclosure"]),
+  wq(["foreclosureWho"], ()=>gv("foreclosure")==="yes", false, {container:"foreclosureDetail", answered:"any"}),
+  wq(["hardshipDuration"]),
+  wq(["hardshipResolved"]),
+  wq(["loanType"], null, true, {neverSkip:true}),
+  {inputs:[], seg:"atFinal", segEl:"atFinalSeg", when:armLike, auto:true, neverSkip:true},
+  wq(["armCap"], ()=>armLike() && segState.atFinal==="no", false, {container:"armCapWrap"}),
+  wq(["rate"], null, false), wq(["upb"], null, false), wq(["pi"], null, false), wq(["remTerm"], null, false),
+  wq(["propValue"], null, false),
+  wq(["propValueSource"], ()=>gv("propValue")!=="", true, {neverSkip:true}),
+  wq(["priorDeferral"]),
+  wq(["existingNIB"], ()=>["1","2","3plus"].includes(gv("priorMods"))||gv("priorDeferral")==="yes", false),
+  wq(["modLast12"]), wq(["failedTPP"]),
+  wq(["hardshipType"]),
+  wq(["onNote"], ()=>["death","divorce","separation"].includes(gv("hardshipType"))),
+  wq(["canResume"]), wq(["canReinstate"]), wq(["canRepay"]),
+  wq(["occPrimary"], underSixty), wq(["reserves25"], underSixty),
+  {inputs:[], seg:"ficoMode", segEl:"ficoModeSeg", when:underSixty, auto:true, neverSkip:true},
+  wq(["ficoExact"], ()=>underSixty() && segState.ficoMode!=="band", false),
+  wq(["ficoBand"], ()=>underSixty() && segState.ficoMode==="band"),
+  wq(["lates2"], underSixty), wq(["dti40"], underSixty),
+];
+const WIZ_FHA = [
+  wq(["fhaHecm"], null, true, {neverSkip:true}),
+  wq(["fhaOrigMonth","fhaOrigYear"], notHecm, false),
+  wq(["fhaMonthsBehind"], notHecm, false),
+  wq(["fhaArrears"], notHecm, false),
+  wq(["fhaEscrow"], ()=>notHecm() && gv("fhaMonthsBehind")!=="" && gv("fhaArrears")==="", false),
+  wq(["fhaRate"], notHecm, false), wq(["fhaUpb"], notHecm, false), wq(["fhaPi"], notHecm, false),
+  wq(["fhaPriorPC"], notHecm, false),
+  wq(["fhaHardship"], notHecm),
+  wq(["fhaOnNote"], ()=>notHecm() && ["death","divorce"].includes(gv("fhaHardship"))),
+  wq(["fhaBk"], notHecm),
+  wq(["fhaBranch"], notHecm),
+  wq(["fha24mo"], notHecm), wq(["fhaBars"], notHecm),
+  wq(["fhaImmDefault"], ()=>{ const m=parseFloat(gv("fhaMonthsBehind")); return notHecm() && !isNaN(m) && m<3; }),
+];
+const WIZ_VA = [
+  wq(["vaOrigMonth","vaOrigYear"], null, false),
+  wq(["vaMonthsBehind"], null, false),
+  wq(["vaArrears"], null, false),
+  wq(["vaEscrow"], ()=>gv("vaMonthsBehind")!=="" && gv("vaArrears")==="", false),
+  wq(["vaRate"], null, false), wq(["vaUpb"], null, false), wq(["vaPi"], null, false),
+  wq(["vaPrimary"]), wq(["vaCovid"]), wq(["vaPriorPC"]), wq(["vaPriorMod"]),
+  wq(["vaBk"]), wq(["vaFc"]),
+  wq(["vaHardship"]),
+  wq(["vaOnNote"], ()=>["death","divorce"].includes(gv("vaHardship"))),
+  wq(["vaCanResume"]), wq(["vaCanReinstate"]), wq(["vaCanRepay"]),
+];
+const WIZ_ALL = WIZ_GSE.concat([
+  wq(["fhaBranch"]), wq(["fha24mo"]), wq(["fhaBars"]), wq(["fhaBk"]),
+  wq(["fhaImmDefault"], ()=>{ const m=parseFloat(gv("monthsBehind")); return !isNaN(m) && m<3; }),
+  wq(["vaPrimary"]), wq(["vaCovid"]), wq(["vaPriorPC"]), wq(["vaPriorMod"]), wq(["vaBk"]), wq(["vaFc"]),
+]);
+const WIZ_SETS = {gse:WIZ_GSE, fha:WIZ_FHA, va:WIZ_VA, all:WIZ_ALL};
+
+let wizMode=null, wizPos=-1, wizHist=[], wizVisited=new Set(), wizDone=false, wizAutoTimer=null;
+
+function wizContainer(step){
+  if (step.container) return $(step.container);
+  if (step.segEl) return $(step.segEl).closest(".field");
+  return $(step.inputs[0]).closest(".field");
+}
+function wizApplies(step){ return step.when ? !!step.when() : true; }
+function wizAnswered(step){
+  if (step.seg) return !!segState[step.seg];
+  const vals = step.inputs.map(gv);
+  return step.answered==="any" ? vals.some(v=>v!=="") : vals.every(v=>v!=="");
+}
+function wizApplicable(){ const set=WIZ_SETS[wizMode]||[]; return set.filter(wizApplies); }
+
+function startWizard(mode){
+  wizMode=mode; wizPos=-1; wizHist=[]; wizVisited=new Set(); wizDone=false;
+  document.body.classList.add("wizard");
+  ["step1","pasteCard","step2","step3","resultsCard","fhaModule","vaModule"].forEach(id=>$(id).classList.add("hidden"));
+  $("wizCard").classList.remove("hidden");
+  $("wizFooter").classList.remove("hidden");
+  $("wizDoneRow").classList.add("hidden");
+  wizAdvance(true);
+}
+function wizStage(idx, dir){
+  const steps=WIZ_SETS[wizMode];
+  const step=steps[idx];
+  const el=wizContainer(step);
+  const slot=$("wizSlot");
+  el.classList.remove("hidden");
+  slot.appendChild(el);
+  if (window.matchMedia && !matchMedia("(prefers-reduced-motion: reduce)").matches){
+    el.classList.remove("wiz-in","wiz-in-back","wiz-out","wiz-out-back");
+    el.classList.add(dir<0 ? "wiz-in-back" : "wiz-in");
+  }
+  wizVisited.add(idx);
+  // footer buttons
+  $("wizNextBtn").classList.toggle("hidden", !!step.auto);
+  $("wizSkipBtn").classList.toggle("hidden", !step.auto);
+  // progress
+  const app=wizApplicable();
+  const pos=Math.max(1, app.indexOf(step)+1);
+  $("wizCount").textContent = "Question "+pos+" of "+app.length;
+  $("wizBar").style.width = Math.round(100*pos/(app.length+1))+"%";
+  // focus first input for typing steps
+  if (!step.auto){ const inp=$(step.inputs[0]); if(inp && inp.type!=="date") try{ inp.focus({preventScroll:true}); }catch(e){} }
+}
+function wizPark(dir){
+  const slot=$("wizSlot"), park=$("wizPark");
+  const kids=[...slot.children];
+  if (!kids.length) return 0;
+  const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  kids.forEach(k=>{ k.classList.remove("wiz-in","wiz-in-back"); if(!reduce) k.classList.add(dir<0?"wiz-out-back":"wiz-out"); });
+  const delay = reduce ? 0 : 150;
+  setTimeout(()=>kids.forEach(k=>park.appendChild(k)), delay);
+  return delay;
+}
+function wizAdvance(){
+  clearTimeout(wizAutoTimer);
+  const steps=WIZ_SETS[wizMode];
+  // Find the next applicable step. Steps never shown before that are ALREADY
+  // answered (e.g. filled by paste-to-fill) are skipped — fewest possible screens.
+  let j=wizPos+1;
+  while (j<steps.length){
+    const s=steps[j];
+    if (!wizApplies(s)) { j++; continue; }
+    if (!s.neverSkip && !wizVisited.has(j) && wizAnswered(s)) { j++; continue; }
+    break;
+  }
+  const delay=wizPark(+1);
+  if (j>=steps.length){ setTimeout(wizFinish, delay); return; }
+  if (wizPos>=0) wizHist.push(wizPos);
+  wizPos=j;
+  setTimeout(()=>wizStage(j, +1), delay);
+}
+function wizBack(){
+  clearTimeout(wizAutoTimer);
+  if (!wizHist.length){ wizExit(); return; }
+  const prev=wizHist.pop();
+  const delay=wizPark(-1);
+  wizPos=prev;
+  setTimeout(()=>wizStage(prev, -1), delay);
+}
+function wizExit(){
+  document.body.classList.remove("wizard");
+  $("wizCard").classList.add("hidden");
+  ["step1","pasteCard"].forEach(id=>$(id).classList.remove("hidden"));
+  wizMode=null; wizDone=false;
+}
+function wizFinish(){
+  wizDone=true; window.__wizDone=true;
+  $("wizFooter").classList.add("hidden");
+  $("wizDoneRow").classList.remove("hidden");
+  $("wizCount").textContent="All done — your results:";
+  $("wizBar").style.width="100%";
+  if (wizMode==="gse"||wizMode==="all"){ runFull(); }
+  if (wizMode==="fha"||wizMode==="all"){ runFHA(); $("fhaModule").classList.remove("hidden"); }
+  if (wizMode==="va" ||wizMode==="all"){ runVA();  $("vaModule").classList.remove("hidden"); }
+  const target = wizMode==="fha" ? $("fhaModule") : wizMode==="va" ? $("vaModule") : $("resultsCard");
+  if (target) target.scrollIntoView({behavior: matchMedia("(prefers-reduced-motion: reduce)").matches?"auto":"smooth", block:"start"});
+}
+function wizEdit(){
+  wizDone=false; window.__wizDone=false;
+  ["resultsCard","fhaModule","vaModule"].forEach(id=>$(id).classList.add("hidden"));
+  $("wizFooter").classList.remove("hidden");
+  $("wizDoneRow").classList.add("hidden");
+  const last=wizPos;
+  wizStage(last, -1);
+}
+// Auto-advance for one-tap steps: chip clicks dispatch change on the hidden select;
+// seg buttons only click. 150ms delay lets the pressed state render — satisfying, not laggy.
+function wizWireAutoAdvance(){
+  const slot=$("wizSlot");
+  const maybe=()=>{ if (wizMode==null||wizDone) return;
+    const step=WIZ_SETS[wizMode][wizPos];
+    if (step && step.auto){ clearTimeout(wizAutoTimer); wizAutoTimer=setTimeout(()=>wizAdvance(), 150); }
+  };
+  slot.addEventListener("change", maybe);
+  slot.addEventListener("click", e=>{ if (e.target.closest(".seg button")) maybe(); });
+  slot.addEventListener("keydown", e=>{
+    if (e.key==="Enter" && wizMode!=null && !wizDone){
+      const step=WIZ_SETS[wizMode][wizPos];
+      if (step && !step.auto){ e.preventDefault(); wizAdvance(); }
+    }
   });
 }
 
@@ -2239,12 +2471,7 @@ window.addEventListener("DOMContentLoaded", ()=>{
 
   chipify();      // dropdowns → one-tap chips
 
-  // LIVE RESULTS: one delegated, debounced recompute for every input/change in the app.
-  let liveTimer=null;
-  const app=$("app");
-  const requestRecompute=()=>{ clearTimeout(liveTimer); liveTimer=setTimeout(recomputeLive, 180); };
-  app.addEventListener("input", requestRecompute);
-  app.addEventListener("change", requestRecompute);
+  wizWireAutoAdvance();   // one-question wizard: chip taps auto-advance, Enter = Next
 
   $("modRate").addEventListener("input", refreshRateEcho);
   $("modRateDate").addEventListener("input", refreshRateEcho);
@@ -2312,9 +2539,7 @@ function mirrorShared(){
 }
 function checkAllPrograms(){
   segState.investor="all";
-  $("investorNote").innerHTML = `<div class="callout"><strong>Checking all three rulebooks at once.</strong> Your entries below feed all of them — the few program-specific questions appear in the FHA and VA sections. When you find out who actually backs your loan, tap that option above for the single answer that applies.</div>`;
-  ["step2","step3","resultsCard","fhaModule","vaModule"].forEach(id=>$(id).classList.remove("hidden"));
-  syncFhaImminent();
-  recomputeLive();
+  $("investorNote").innerHTML = "";
+  startWizard("all");
 }
 </script>
